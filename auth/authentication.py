@@ -29,6 +29,7 @@ is_admin() and enforced inside app_pages/settings.py, not by hiding
 the Settings page itself.
 """
 import time
+import uuid
 
 import streamlit as st
 
@@ -191,6 +192,34 @@ def handle_google_login(email: str, full_name: str) -> bool:
     _set_session(user)
     update_last_login(user["id"])
     log_action(user["username"], "LOGIN", "AUTH", "User logged in via Google.")
+    return True
+
+
+def start_guest_session() -> bool:
+    """Create a fresh, one-off account and log straight into it - the
+    "Continue as Guest" entry point on a public demo deployment. Every
+    CyberGuard page scopes its data strictly by user_id (see
+    database/models.py's module docstring on multi-tenant isolation),
+    so a guest still needs a REAL user row to attach anything they do
+    to - this keeps a guest's own uploads/scans/detections fully
+    isolated from every other guest and every real account, exactly
+    like any other account, never shared or faked data. password_hash
+    stays NULL (same as a Google-only account): a guest never
+    authenticates with a password, and the random generated username
+    is never shown to them, so there is deliberately no way back into
+    this same account later - each "Continue as Guest" click is a
+    brand-new, disposable identity."""
+    username = f"guest_{uuid.uuid4().hex[:10]}"
+    create_user(
+        username=username, password_hash=None, role=DEFAULT_SELF_SIGNUP_ROLE,
+        full_name="Guest", email=None, auth_provider="local",
+    )
+    user = get_user_by_username(username)
+    if user is None:  # defensive - insert should always be found by its own username
+        return False
+
+    _set_session(user)
+    log_action(username, "GUEST_LOGIN", "AUTH", "Started a guest session.")
     return True
 
 

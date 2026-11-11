@@ -48,7 +48,7 @@ from pathlib import Path
 import streamlit as st
 
 import config
-from auth.authentication import login, register_user
+from auth.authentication import login, register_user, start_guest_session
 from utils.illustrations import static_asset_url
 
 _ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
@@ -471,6 +471,10 @@ html, body, [data-testid="stAppViewContainer"], .stMarkdown p, label, input, but
     background-image: none;
 }
 
+.cg-guest-note {
+    font-size: 0.78rem; line-height: 1.5; color: #7C96B4;
+    margin: 0.45rem 0 0; text-align: center;
+}
 .cg-separator {
     display: flex; align-items: center; gap: 0.7rem;
     color: #7C96B4; font-size: 0.78rem; letter-spacing: 0.05em;
@@ -724,6 +728,18 @@ def _separator():
 
 def _render_login_tab():
     _heading("Login to your workspace", "Accounts are issued by an administrator.")
+
+    if st.button("Continue as Guest", width="stretch", key="guest_login_btn"):
+        if start_guest_session():
+            st.rerun()
+        else:
+            st.error("Could not start a guest session. Please try again.")
+    st.markdown(
+        '<p class="cg-guest-note">No account needed - explore with a temporary '
+        "demo account. Nothing you do is visible to other visitors.</p>",
+        unsafe_allow_html=True,
+    )
+    _separator()
 
     if _render_google_option("google_login_btn"):
         _separator()
