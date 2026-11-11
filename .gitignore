@@ -1,0 +1,37 @@
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+
+# Data & trained models (large / user-specific, not source code)
+data/*.csv
+data/CICIDS2017/*.parquet
+models/*.pkl
+models/**/*.pkl
+models/**/*.json
+models/active_model.json
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local run artifacts
+*.log
+
+# Academic submission drafts / session output - not application source,
+# and the filenames carry a student ID, so these stay out of the public repo.
+FYP2_Submission/
+Claude outputs/
+AI-CyberGuard_FYP2_Viva_Deck.pptx
+
+# Editor/tool-specific local state - not part of the app itself.
+AI development/
+.kombai/
+.agents/

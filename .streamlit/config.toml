@@ -1,0 +1,49 @@
+[theme]
+# Light theme - reverted from an earlier dark-navy pass per explicit
+# feedback ("don't make it dark, make it more colorful but
+# professional"). base = "light" is Streamlit's default anyway, but
+# set explicitly here (rather than omitted) so it's never ambiguous
+# which direction this app is meant to render in, and so NATIVE
+# components this app's own CSS can't reach at all - most importantly
+# st.dataframe's grid, rendered via WebGL/canvas, not styleable DOM -
+# render light/correct automatically instead of needing per-component
+# overrides.
+base = "light"
+primaryColor = "#0EA5E9"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F9FF"
+textColor = "#0F172A"
+
+[client]
+# "none": an unhandled exception shows a generic message in the
+# browser instead of a full traceback (which can reveal file paths,
+# query text, or other internals). Streamlit still prints the full
+# exception to the server console/terminal it's running in, so nothing
+# is lost for whoever is running the app locally - this only changes
+# what a VIEWER in the browser sees.
+showErrorDetails = "none"
+
+[server]
+# Pinned rather than left to Streamlit's default auto-increment: with
+# a port explicitly set here, Streamlit refuses to start and reports
+# the conflict (exit code 1, "Port 8501 is not available") if 8501 is
+# already taken, instead of silently climbing to 8502/8503/8504 - see
+# venv/Lib/site-packages/streamlit/web/server/starlette/starlette_server.py's
+# own retry logic, which only auto-increments when the port was NOT
+# manually set. This also keeps GOOGLE_REDIRECT_URI (.env) - which is
+# bound to the port in the URL - permanently valid.
+port = 8501
+# Reject an upload above this before it's even handed to app code
+# (belt-and-suspenders with config.MAX_UPLOAD_SIZE_MB, which the app
+# also checks explicitly so it can show a friendly message instead of
+# Streamlit's own generic rejection).
+maxUploadSize = 300
+# Serves whatever is in a folder literally named "static" (next to
+# app.py) at the URL path "app/static/<file>" - this is how
+# utils/theme.py's global background image (static/cyberguard_
+# background.png) gets a real browser-fetchable URL for a CSS
+# background-image, instead of being embedded as a giant base64 string
+# in Python source (which would re-send the whole image on every
+# rerun). Read-only static files, not user-controlled - no path
+# traversal risk.
+enableStaticServing = true

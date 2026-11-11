@@ -1,0 +1,827 @@
+{
+  "environment": {
+    "database": "MariaDB 10.11 (engine bundled with XAMPP)",
+    "python": "3.13.0",
+    "synthetic_train_secs": 1.0
+  },
+  "compliance_matrix": [
+    {
+      "attack": "Bot",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "Bot",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "DDoS",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": false,
+      "rules": [
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "DDoS",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "DoS GoldenEye",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": false,
+      "rules": [
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "DoS GoldenEye",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "DoS Hulk",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": false,
+      "rules": [
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "DoS Hulk",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "DoS Slowhttptest",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": false,
+      "rules": [
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "DoS Slowhttptest",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "DoS slowloris",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": false,
+      "rules": [
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "DoS slowloris",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "FTP-Patator",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "FTP-Patator",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "Heartbleed",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "Heartbleed",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "Infiltration",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "Infiltration",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "PortScan",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": false,
+      "rules": [
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "PortScan",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    },
+    {
+      "attack": "SSH-Patator",
+      "severity": "HIGH",
+      "risk": 70,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": false
+    },
+    {
+      "attack": "SSH-Patator",
+      "severity": "CRITICAL",
+      "risk": 95,
+      "flagged": true,
+      "rules": [
+        "GDPR-01",
+        "ISO27001-01",
+        "ISO27001-02",
+        "NIST-DETECT",
+        "NIST-RECOVER",
+        "NIST-RESPOND",
+        "PDPA-01",
+        "PDPA-02"
+      ],
+      "alert": true
+    }
+  ],
+  "summary": {
+    "total": 50,
+    "passed": 50
+  },
+  "results": [
+    {
+      "id": "E-01",
+      "category": "Environment",
+      "title": "Default root account accepts an empty password",
+      "expected": "Weakness exposed",
+      "actual": "login as root with EMPTY password succeeded (root@localhost); weakness confirmed",
+      "passed": true,
+      "ms": 141
+    },
+    {
+      "id": "E-02",
+      "category": "Environment",
+      "title": "Default instance carries anonymous accounts",
+      "expected": "Weakness exposed",
+      "actual": "0 anonymous account row(s) present in default instance",
+      "passed": true,
+      "ms": 12
+    },
+    {
+      "id": "E-03",
+      "category": "Environment",
+      "title": "schema.sql imports and creates all application tables",
+      "expected": "10 tables",
+      "actual": "10 tables created: alerts, audit_logs, compliance_results, compliance_rules, network_traffic, rate_limit_counters, reports, threat_detections, url_scan_results, users",
+      "passed": true,
+      "ms": 414
+    },
+    {
+      "id": "E-04",
+      "category": "Environment",
+      "title": "Root with an empty password is rejected after hardening",
+      "expected": "Rejected",
+      "actual": "rejected (errno 1045)",
+      "passed": true,
+      "ms": 6
+    },
+    {
+      "id": "E-05",
+      "category": "Environment",
+      "title": "Anonymous accounts removed after hardening",
+      "expected": "0 accounts",
+      "actual": "0 anonymous accounts remain",
+      "passed": true,
+      "ms": 6
+    },
+    {
+      "id": "E-06",
+      "category": "Environment",
+      "title": "Least-privilege app account can INSERT into audit_logs",
+      "expected": "Permitted",
+      "actual": "INSERT permitted",
+      "passed": true,
+      "ms": 5
+    },
+    {
+      "id": "E-07",
+      "category": "Environment",
+      "title": "App account cannot UPDATE audit_logs (append-only)",
+      "expected": "Denied",
+      "actual": "denied (errno 1142)",
+      "passed": true,
+      "ms": 3
+    },
+    {
+      "id": "E-08",
+      "category": "Environment",
+      "title": "App account cannot DELETE from audit_logs",
+      "expected": "Denied",
+      "actual": "denied (errno 1142)",
+      "passed": true,
+      "ms": 2
+    },
+    {
+      "id": "E-09",
+      "category": "Environment",
+      "title": "App account cannot DROP a table",
+      "expected": "Denied",
+      "actual": "denied (errno 1142)",
+      "passed": true,
+      "ms": 2
+    },
+    {
+      "id": "E-10",
+      "category": "Environment",
+      "title": "App account cannot read the server's mysql.global_priv table",
+      "expected": "Denied",
+      "actual": "denied (errno 1142)",
+      "passed": true,
+      "ms": 3
+    },
+    {
+      "id": "E-11",
+      "category": "Environment",
+      "title": "App account cannot create new database users",
+      "expected": "Denied",
+      "actual": "denied (errno 1227)",
+      "passed": true,
+      "ms": 3
+    },
+    {
+      "id": "E-12",
+      "category": "Environment",
+      "title": "Application connects through database/connection.py with the app account",
+      "expected": "Connected",
+      "actual": "(True, None)",
+      "passed": true,
+      "ms": 20
+    },
+    {
+      "id": "E-13",
+      "category": "Environment",
+      "title": "TLS mode handling: invalid/insecure configurations fail loudly",
+      "expected": "Safe refusal",
+      "actual": "DISABLED->ssl_disabled; invalid mode->ValueError; VERIFY_CA without CA->RuntimeError (refuses insecure fallback); VERIFY_IDENTITY->verify_cert+verify_identity",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "E-14",
+      "category": "Environment",
+      "title": "Missing required setting is reported by name only",
+      "expected": "Name only",
+      "actual": "ok=False, missing=['DB_USER'] (names only, no values)",
+      "passed": true,
+      "ms": 1
+    },
+    {
+      "id": "E-15",
+      "category": "Environment",
+      "title": "MySQL listens on the loopback interface only",
+      "expected": "127.0.0.1",
+      "actual": "bind_address=127.0.0.1",
+      "passed": true,
+      "ms": 5
+    },
+    {
+      "id": "S-01",
+      "category": "Security",
+      "title": "SQL-injection payloads in the login lookup are treated as data",
+      "expected": "No match, table intact",
+      "actual": "5 payloads, 0 rows returned, users table intact (1 row)",
+      "passed": true,
+      "ms": 7
+    },
+    {
+      "id": "S-02",
+      "category": "Security",
+      "title": "Passwords stored as salted bcrypt hashes; wrong and NULL hashes fail closed",
+      "expected": "Hash verified",
+      "actual": "bcrypt prefix $2b$, salted (two hashes differ), wrong/None rejected",
+      "passed": true,
+      "ms": 1016
+    },
+    {
+      "id": "S-03",
+      "category": "Security",
+      "title": "Authentication result does not distinguish unknown user from wrong password",
+      "expected": "Same outcome",
+      "actual": "correct->user, wrong password->None, unknown user->None (identical outcome)",
+      "passed": true,
+      "ms": 541
+    },
+    {
+      "id": "S-04",
+      "category": "Security",
+      "title": "Disabled account cannot authenticate",
+      "expected": "Rejected",
+      "actual": "disabled account with correct password -> rejected",
+      "passed": true,
+      "ms": 7
+    },
+    {
+      "id": "S-05",
+      "category": "Security",
+      "title": "Login throttling blocks an account after the configured failed attempts",
+      "expected": "Blocked",
+      "actual": "after 5 failures: blocked, retry_after=30s",
+      "passed": true,
+      "ms": 60
+    },
+    {
+      "id": "S-06",
+      "category": "Security",
+      "title": "Throttling response is identical for real and non-existent accounts",
+      "expected": "No account enumeration",
+      "actual": "real and non-existent accounts both blocked with the same text: 'Too many attempts. Please try again in N seconds.'",
+      "passed": true,
+      "ms": 95
+    },
+    {
+      "id": "S-07",
+      "category": "Security",
+      "title": "Success resets the per-account counter but not the per-source counter",
+      "expected": "Reset / preserved",
+      "actual": "account counter reset on success (rows=0); source counter preserved (count=3)",
+      "passed": true,
+      "ms": 26
+    },
+    {
+      "id": "S-08",
+      "category": "Security",
+      "title": "URL-scan cooldown is enforced per user in the database",
+      "expected": "2nd call blocked",
+      "actual": "user101 first=(True, 0), second=(False, 10); user202 first=(True, 0)",
+      "passed": true,
+      "ms": 16
+    },
+    {
+      "id": "S-11",
+      "category": "Security",
+      "title": "Rate limiter fails open when the database is unavailable (documented trade-off)",
+      "expected": "Allowed, no crash",
+      "actual": "database unavailable -> allowed=True (fails OPEN by design, so an outage cannot lock every user out; documented trade-off)",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "S-12",
+      "category": "Security",
+      "title": "Loopback clients share a single source bucket (documented limitation)",
+      "expected": "'local' bucket",
+      "actual": "outside a routable network session the source key is 'local': every loopback client shares one bucket (documented limitation)",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "S-09",
+      "category": "Security",
+      "title": "Self-registration validates input and always assigns the lowest role",
+      "expected": "6/6 cases, role USER",
+      "actual": "6/6 validation cases correct; new account role=USER",
+      "passed": true,
+      "ms": 281
+    },
+    {
+      "id": "S-10",
+      "category": "Security",
+      "title": "URL validation accepts well-formed public http/https hosts and rejects unsafe or private/internal input",
+      "expected": "12/12",
+      "actual": "12/12 URL cases classified correctly",
+      "passed": true,
+      "ms": 1
+    },
+    {
+      "id": "U-01",
+      "category": "URL scanner",
+      "title": "Risk = min(100, 4 x malicious + 2 x suspicious) with shared severity bands",
+      "expected": "7/7 verdicts",
+      "actual": "0M/0S->SAFE/0/LOW; 0M/3S->SUSPICIOUS/6/LOW; 3M/0S->MALICIOUS/12/LOW; 10M/0S->MALICIOUS/40/MEDIUM; 17M/1S->MALICIOUS/70/HIGH; 20M/0S->MALICIOUS/80/CRITICAL; 40M/5S->MALICIOUS/100/CRITICAL",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "U-02",
+      "category": "URL scanner",
+      "title": "Invalid input and API failures return SCAN_ERROR instead of raising",
+      "expected": "SCAN_ERROR",
+      "actual": "invalid URL->SCAN_ERROR; API failure->SCAN_ERROR (no exception raised)",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "R-01",
+      "category": "Risk scoring",
+      "title": "Risk formula: malicious=confidence, benign=0.4x(100-confidence), +15 anomaly bonus, capped",
+      "expected": "8/8",
+      "actual": "8/8 formula cases exact",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "R-02",
+      "category": "Risk scoring",
+      "title": "Severity bands: 0-29 LOW, 30-59 MEDIUM, 60-79 HIGH, 80-100 CRITICAL",
+      "expected": "8/8 boundaries",
+      "actual": "8/8 boundary values map to the correct band (29|30, 59|60, 79|80)",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-01",
+      "category": "Compliance",
+      "title": "Rule catalogue seeds idempotently for five frameworks",
+      "expected": "13 rules / 5 frameworks",
+      "actual": "13 rules: PDPA=2, ISO27001=2, NIST_CSF=3, GDPR=1, EU_AI_ACT=5",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-02",
+      "category": "Compliance",
+      "title": "Re-seeding the catalogue does not duplicate rules",
+      "expected": "Still 13",
+      "actual": "13 rules after second seed",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-03",
+      "category": "Compliance",
+      "title": "No attack class/severity combination auto-emits POTENTIAL_VIOLATION (human judgement retained)",
+      "expected": "Never",
+      "actual": "22 event/severity combinations evaluated; POTENTIAL_VIOLATION never emitted automatically",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-04",
+      "category": "Compliance",
+      "title": "At HIGH severity only access/data-oriented attacks trigger PDPA-01 and GDPR-01",
+      "expected": "5 classes",
+      "actual": "HIGH-severity events flagged for personal-data review: Bot, FTP-Patator, Heartbleed, Infiltration, SSH-Patator",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-05",
+      "category": "Compliance",
+      "title": "CRITICAL severity forces the personal-data rules for every attack class",
+      "expected": "11/11",
+      "actual": "all 11 CRITICAL events trigger PDPA-01 and GDPR-01 (severity override)",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-10",
+      "category": "Compliance",
+      "title": "Rule discrimination analysis: which rule outputs actually change with the event",
+      "expected": "Documented",
+      "actual": "rules emitted: 8; constant status AND always present: ISO27001-01, ISO27001-02, NIST-DETECT, NIST-RECOVER, NIST-RESPOND, PDPA-02; condition-dependent: GDPR-01, PDPA-01",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-06",
+      "category": "Compliance",
+      "title": "A malicious URL is mapped to personal-data rules; a merely suspicious URL is not",
+      "expected": "Mapped / not mapped",
+      "actual": "MALICIOUS URL -> GDPR-01, ISO27001-01, ISO27001-02, NIST-DETECT, NIST-RECOVER, NIST-RESPOND, PDPA-01, PDPA-02; SUSPICIOUS URL -> ISO27001-01, NIST-DETECT, NIST-RECOVER, NIST-RESPOND, PDPA-02",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "C-07",
+      "category": "Compliance",
+      "title": "Alert is created at risk >= 80 and not at 79 (boundary)",
+      "expected": "79 no, 80 yes",
+      "actual": "risk 79 -> alert=False; risk 80 -> alert=True",
+      "passed": true,
+      "ms": 24
+    },
+    {
+      "id": "C-08",
+      "category": "Compliance",
+      "title": "EU AI Act self-assessment is evaluated once, per system, per user",
+      "expected": "5 checks (4 + 1)",
+      "actual": "5 EU AI Act checks: 4 COMPLIANT, 1 NEEDS_REVIEW (classification left to a human)",
+      "passed": true,
+      "ms": 2
+    },
+    {
+      "id": "C-09",
+      "category": "Compliance",
+      "title": "Every alert carries a compliance summary and templated recommended actions",
+      "expected": "Present",
+      "actual": "alert THR-0001: summary='PDPA-01: NEEDS_REVIEW; PDPA-02: COMPLIANT; ISO27001-01: COMPLIANT; ISO27001-02: ...'",
+      "passed": true,
+      "ms": 3
+    },
+    {
+      "id": "I-01",
+      "category": "Isolation",
+      "title": "A second user cannot read or modify another user's alerts or compliance results",
+      "expected": "B sees 0, update rejected",
+      "actual": "user A sees 1 alert(s); user B sees 0 alert(s) and 0 compliance row(s); B updating A's alert -> False; A updating own -> True",
+      "passed": true,
+      "ms": 8
+    },
+    {
+      "id": "L-01",
+      "category": "Audit",
+      "title": "Audit entries are written, and an audit failure never crashes the feature",
+      "expected": "Written / no crash",
+      "actual": "audit row written (n=1); a database failure does not crash the calling feature",
+      "passed": true,
+      "ms": 3
+    },
+    {
+      "id": "M-01",
+      "category": "ML pipeline",
+      "title": "Dataset validation rejects empty, tiny and single-class uploads",
+      "expected": "3 rejected, 1 accepted",
+      "actual": "empty->False, <20 rows->False, single class->False, valid multi-class->True",
+      "passed": true,
+      "ms": 23
+    },
+    {
+      "id": "M-02",
+      "category": "ML pipeline",
+      "title": "Sanitiser converts infinities and non-numeric strings and reports exactly what changed",
+      "expected": "Reported",
+      "actual": "infinities replaced={'f0': 1}, invalid strings->NaN={'f2': 1}",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "M-03",
+      "category": "ML pipeline",
+      "title": "Train/test split is 75/25 and partitions every row",
+      "expected": "75/25",
+      "actual": "train=3532, test=1178 (0.250 of 4710)",
+      "passed": true,
+      "ms": 0
+    },
+    {
+      "id": "M-04",
+      "category": "ML pipeline",
+      "title": "Imputer statistics are learned from the training split only (leakage guard)",
+      "expected": "Train-only",
+      "actual": "imputer medians == train-split medians: True; == whole-dataset medians: False (no leakage)",
+      "passed": true,
+      "ms": 10
+    },
+    {
+      "id": "M-05",
+      "category": "ML pipeline",
+      "title": "Detection output has consistent prediction, attack type, risk and severity for every record",
+      "expected": "Consistent",
+      "actual": "4710 records scored; risk in [0,100]; severity consistent; benign rows carry no attack type; malicious rows name one (best model=random_forest)",
+      "passed": true,
+      "ms": 183
+    },
+    {
+      "id": "M-06",
+      "category": "ML pipeline",
+      "title": "Schema mismatch is reported by column name and blocked before prediction",
+      "expected": "Reported",
+      "actual": "missing columns named: ['f6', 'f7']; transform raises a clear ValueError: True",
+      "passed": true,
+      "ms": 1
+    },
+    {
+      "id": "X-01",
+      "category": "Integration",
+      "title": "End-to-end: detection -> MySQL -> compliance engine -> alerts, with alert count matching risk>=80",
+      "expected": "Counts match",
+      "actual": "400 flows scored -> 150 HIGH/CRITICAL events -> 150 alerts (expected 150); all rows stored under user A",
+      "passed": true,
+      "ms": 1159
+    }
+  ]
+}

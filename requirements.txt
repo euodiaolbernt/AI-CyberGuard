@@ -1,0 +1,41 @@
+# Pinned to the exact versions this project is built and tested
+# against (captured via `pip freeze` from the working dev environment
+# during the security-hardening pass) - not arbitrarily upgraded. This
+# makes installs reproducible and gives dependency vulnerability
+# scanners (e.g. `pip-audit`, GitHub Dependabot) a fixed version to
+# check instead of "whatever is newest today". Bump a version here
+# deliberately, after testing, not as a side effect of a fresh install.
+
+# --- Core web app ---
+streamlit==1.64.0
+
+# --- Data processing (Layer 2/3) ---
+pandas==3.0.5
+numpy==2.5.3
+pyarrow==25.0.1  # required to read the CICIDS2017 Parquet files directly, and Parquet/Feather/ORC uploads (ml/file_loader.py)
+openpyxl==3.1.5  # Excel (.xlsx) uploads - Threat Detection's Multi-Format Upload tab
+xlrd==2.0.2      # legacy Excel (.xls) uploads - Threat Detection's Multi-Format Upload tab
+
+# --- Machine learning (Layer 3) ---
+scikit-learn==1.9.1
+xgboost==3.4.1
+joblib==1.6.0
+
+# --- Database ---
+mysql-connector-python==26.7.0
+
+# --- Auth / security ---
+bcrypt==5.0.0
+python-dotenv==1.2.3
+Authlib==1.8.0  # required by streamlit's st.login()/st.user for Google OAuth
+httpx==0.28.1   # required by Authlib's Starlette OAuth client - not pulled in automatically
+
+# --- URL threat intelligence (VirusTotal API v3) ---
+requests==2.34.2
+
+# --- Charts (Dashboard / Reports) ---
+matplotlib==3.11.2
+plotly==7.1.0
+
+# --- PDF report export (optional, Layer 6) ---
+fpdf2==2.8.8
