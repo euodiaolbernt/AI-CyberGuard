@@ -485,11 +485,6 @@ html, body, [data-testid="stAppViewContainer"], .stMarkdown p, label, input, but
     padding-top: 0.8rem;
     border-top: 1px solid rgba(169, 199, 232, 0.14);
 }
-.cg-provider-note {
-    font-size: 0.8rem; line-height: 1.55; color: #F0B429;
-    margin: 0.55rem 0 0;
-}
-
 /* Alerts inside the dark card */
 .st-key-login_card [data-testid="stAlert"] {
     background: rgba(220, 38, 38, 0.12) !important;
@@ -704,19 +699,19 @@ def _heading(title: str, subtitle: str):
     )
 
 
-def _render_google_option(key: str):
-    """Real OIDC entry point, or a disabled button that says why it can't be
-    used - never a silent no-op."""
+def _render_google_option(key: str) -> bool:
+    """Real OIDC entry point. Returns False (renders nothing at all) when
+    Google sign-in isn't configured - a public deployment without OAuth
+    set up shouldn't show a dead button or explain internal env var names
+    to anonymous visitors; the email/username + password path still works
+    either way, so there's nothing broken to call out here. Returns True
+    when it actually rendered a usable button, so the caller knows
+    whether a separator below it still makes sense."""
     if not config.has_google_oauth_configured():
-        st.button("Continue with Google", disabled=True, width="stretch", key=key)
-        st.markdown(
-            '<p class="cg-provider-note">Google sign-in isn\'t available on this '
-            'deployment yet - use your email/username and password below instead.</p>',
-            unsafe_allow_html=True,
-        )
-        return
+        return False
     if st.button("Continue with Google", width="stretch", key=key):
         st.login("google")
+    return True
 
 
 def _separator():
@@ -730,8 +725,8 @@ def _separator():
 def _render_login_tab():
     _heading("Login to your workspace", "Accounts are issued by an administrator.")
 
-    _render_google_option("google_login_btn")
-    _separator()
+    if _render_google_option("google_login_btn"):
+        _separator()
 
     with st.form("login_form"):
         identifier = st.text_input(
@@ -790,8 +785,8 @@ def _render_create_tab():
     _heading("Create an account",
              "New accounts start with the USER role and see only their own data.")
 
-    _render_google_option("google_create_btn")
-    _separator()
+    if _render_google_option("google_create_btn"):
+        _separator()
 
     with st.form("create_account_form", clear_on_submit=True):
         full_name = st.text_input("Full name", placeholder="Your full name",
