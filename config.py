@@ -11,9 +11,34 @@ verifying no secret has leaked into source code.
 import os
 from pathlib import Path
 
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()  # reads the ".env" file in the project root into os.environ
+
+
+def _load_streamlit_secrets_into_env():
+    """Streamlit Community Cloud has no .env file to load - secrets
+    there are pasted into the platform's own dashboard instead, which
+    Streamlit exposes as st.secrets. Mirroring any keys found there
+    into os.environ lets every os.getenv() call below keep working
+    unchanged on both local (.env) and Community Cloud (st.secrets),
+    without needing two separate code paths. Never overwrites a real
+    .env value already present, so local dev behaviour is untouched.
+    A bare `except Exception` is deliberate here: st.secrets raises
+    when no secrets.toml exists at all (the normal case for local dev
+    without Google OAuth configured, see sync_streamlit_auth_secrets()
+    below) - that's not an error, it just means there's nothing to
+    mirror."""
+    try:
+        for key, value in st.secrets.items():
+            if key not in os.environ:
+                os.environ[key] = str(value)
+    except Exception:
+        pass
+
+
+_load_streamlit_secrets_into_env()
 
 # NOTE: this file only runs once per process - Python caches imported
 # modules, so editing .env while `streamlit run app.py` is already

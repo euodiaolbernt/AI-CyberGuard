@@ -17,6 +17,19 @@ models/**/*.pkl
 models/**/*.json
 models/active_model.json
 
+# Exception: ship the CURRENTLY-active trained model slug only (~2MB -
+# isolation_forest/label_encoder/preprocessing/random_forest/xgboost
+# .pkl + model_meta.json), so a fresh clone or a cloud deploy (e.g.
+# Streamlit Community Cloud) can run real predictions without needing
+# the 258MB CICIDS2017 dataset to retrain first. Every OTHER historical
+# slug under models/ stays excluded (not needed at runtime, and large).
+# NOTE: if you retrain and a DIFFERENT slug becomes active
+# (models/active_model.json's "active_slug"), update the path below
+# and re-commit, or the deployed app will keep shipping the old model.
+!models/active_model.json
+!models/ldap_training_parquet/*.pkl
+!models/ldap_training_parquet/*.json
+
 # IDE / OS
 .vscode/
 .DS_Store
@@ -35,3 +48,4 @@ AI-CyberGuard_FYP2_Viva_Deck.pptx
 AI development/
 .kombai/
 .agents/
+.claude/
