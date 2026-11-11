@@ -191,24 +191,39 @@ def sync_streamlit_auth_secrets():
     values from .env into secrets.toml on every process start, so
     .env stays the only file anyone actually edits. secrets.toml is
     git-ignored, exactly like .env, and holds the same values, not
-    new ones."""
+    new ones.
+
+    BEST-EFFORT ONLY: a platform that deploys this app from a git
+    checkout (e.g. Streamlit Community Cloud) typically mounts that
+    checkout read-only at runtime, and ALSO writes its own
+    .streamlit/secrets.toml from its own secrets dashboard before the
+    app even starts - so on such a platform this write both fails AND
+    isn't needed (the real fix there is pasting the [auth]/[auth.google]
+    sections directly into that platform's secrets dashboard, not
+    relying on this function). A failed write must never crash the
+    whole app over a convenience file it couldn't create - local dev
+    (where the checkout IS writable) is the only place this ever
+    actually needs to succeed."""
     if not has_google_oauth_configured():
         return
 
-    secrets_dir = Path(__file__).resolve().parent / ".streamlit"
-    secrets_dir.mkdir(exist_ok=True)
-    secrets_path = secrets_dir / "secrets.toml"
-    secrets_path.write_text(
-        "[auth]\n"
-        f'redirect_uri = "{GOOGLE_REDIRECT_URI}"\n'
-        f'cookie_secret = "{AUTH_COOKIE_SECRET}"\n'
-        "\n"
-        "[auth.google]\n"
-        f'client_id = "{GOOGLE_CLIENT_ID}"\n'
-        f'client_secret = "{GOOGLE_CLIENT_SECRET}"\n'
-        'server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"\n',
-        encoding="utf-8",
-    )
+    try:
+        secrets_dir = Path(__file__).resolve().parent / ".streamlit"
+        secrets_dir.mkdir(exist_ok=True)
+        secrets_path = secrets_dir / "secrets.toml"
+        secrets_path.write_text(
+            "[auth]\n"
+            f'redirect_uri = "{GOOGLE_REDIRECT_URI}"\n'
+            f'cookie_secret = "{AUTH_COOKIE_SECRET}"\n'
+            "\n"
+            "[auth.google]\n"
+            f'client_id = "{GOOGLE_CLIENT_ID}"\n'
+            f'client_secret = "{GOOGLE_CLIENT_SECRET}"\n'
+            'server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"\n',
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 sync_streamlit_auth_secrets()
