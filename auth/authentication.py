@@ -228,12 +228,24 @@ def sync_google_session():
     is_authenticated(). If Streamlit's own OIDC layer shows a signed-in
     Google identity that this module's session_state doesn't know
     about yet, bridge it in. A no-op whenever Google OAuth isn't
-    configured, so it's always safe to call - it never touches
-    st.user unless config confirms the [auth] section actually
-    exists (accessing st.user without it configured raises)."""
+    configured, so it's always safe to call.
+
+    config.has_google_oauth_configured() only checks OUR OWN flat
+    GOOGLE_*/AUTH_COOKIE_SECRET env vars - it says nothing about
+    whether Streamlit's own [auth]/[auth.google] secrets.toml section
+    (a separate thing entirely - see config.sync_streamlit_auth_secrets())
+    is ALSO present and valid. If it isn't, st.user raises
+    StreamlitAuthError the moment it's touched - that must never take
+    down the whole app (every page, not just Google sign-in) just
+    because one optional integration is misconfigured, so this is
+    deliberately defensive about the type of exception, not just
+    AttributeError."""
     if is_authenticated() or not config.has_google_oauth_configured():
         return
-    if not getattr(st.user, "is_logged_in", False):
+    try:
+        if not getattr(st.user, "is_logged_in", False):
+            return
+    except Exception:
         return
     handle_google_login(st.user.email, st.user.get("name") or st.user.email)
 

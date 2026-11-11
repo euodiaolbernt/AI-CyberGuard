@@ -714,7 +714,13 @@ def _render_google_option(key: str) -> bool:
     if not config.has_google_oauth_configured():
         return False
     if st.button("Continue with Google", width="stretch", key=key):
-        st.login("google")
+        try:
+            st.login("google")
+        except Exception:
+            st.error(
+                "Google sign-in is misconfigured on this deployment. "
+                "Please use your email/username and password instead."
+            )
     return True
 
 
