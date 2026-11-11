@@ -710,9 +710,8 @@ def _render_google_option(key: str):
     if not config.has_google_oauth_configured():
         st.button("Continue with Google", disabled=True, width="stretch", key=key)
         st.markdown(
-            '<p class="cg-provider-note">Google sign-in is not configured on this '
-            'deployment. An administrator can enable it with GOOGLE_CLIENT_ID, '
-            'GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI and AUTH_COOKIE_SECRET.</p>',
+            '<p class="cg-provider-note">Google sign-in isn\'t available on this '
+            'deployment yet - use your email/username and password below instead.</p>',
             unsafe_allow_html=True,
         )
         return
