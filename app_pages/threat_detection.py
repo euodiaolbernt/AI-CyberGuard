@@ -873,7 +873,7 @@ def _render_model_evaluation():
             )
             st.markdown(_metric_grid_html(model_key, m), unsafe_allow_html=True)
             with st.expander("Confusion Matrix", icon=":material/grid_on:"):
-                _render_confusion_matrix_heatmap(m["confusion_matrix"], m["class_names"])
+                _render_confusion_matrix_heatmap(m["confusion_matrix"], m["class_names"], key=f"cm_{model_key}")
 
 
 def _metric_grid_html(model_key: str, m: dict) -> str:
@@ -910,7 +910,7 @@ def _metric_grid_html(model_key: str, m: dict) -> str:
     )
 
 
-def _render_confusion_matrix_heatmap(cm: list, class_names: list):
+def _render_confusion_matrix_heatmap(cm: list, class_names: list, key: str):
     """Real confusion-matrix values only - cm/class_names come straight
     from ml/evaluation.py's sklearn-computed output stored in
     models/model_meta.json; nothing here invents or recomputes a
@@ -945,7 +945,7 @@ def _render_confusion_matrix_heatmap(cm: list, class_names: list):
         height=max(340, 36 * n),
     )
     st.caption(":material/check_circle: Green outline = correct predictions (diagonal). Everything else is a misclassification.")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=key)
 
 
 # ---------------------------------------------------------------

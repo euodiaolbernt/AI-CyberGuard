@@ -68,7 +68,10 @@ _SUMMARY_CARDS = [
     ("kpi_low", "Low", "LOW"),
 ]
 
-_FILTER_KEYS = ("alerts_filter_status", "alerts_filter_severity", "alerts_filter_type")
+_FILTER_KEYS = (
+    "alerts_filter_status", "alerts_filter_severity", "alerts_filter_type",
+    "alerts_filter_search_id",
+)
 
 
 def render_alerts_page():
@@ -99,7 +102,7 @@ def render_alerts_page():
     _render_summary_cards(user_id, start_date, end_date)
     st.divider()
 
-    status_filter, severity_filter, type_filter = _render_filters()
+    status_filter, severity_filter, type_filter, search_id = _render_filters()
     severities = None if not severity_filter or len(severity_filter) == len(SEVERITY_ORDER) else severity_filter
 
     alerts = get_alerts(
@@ -110,6 +113,14 @@ def render_alerts_page():
         start_date=start_date, end_date=end_date,
         limit=100,
     )
+
+    # ID search runs over the already-fetched page of alerts (same
+    # pattern as compliance.py's search box) rather than a second
+    # database query - cheap since the other filters already bounded
+    # the result set to at most 100 rows.
+    search_id = search_id.strip()
+    if search_id:
+        alerts = [a for a in alerts if search_id.lower() in (a["threat_ref"] or "").lower()]
 
     if not alerts:
         render_empty_state("No alerts match the selected filters.", "bell_network")
@@ -158,7 +169,7 @@ def _render_filters():
     shared selection every other page's own filters now read from."""
     with st.container(key="alerts_filter_bar", border=True):
         st.markdown("**Filters**")
-        cols = st.columns([1, 1.6, 1.2, 0.9])
+        cols = st.columns([1, 1.4, 1, 1.2, 0.9])
         with cols[0]:
             status_filter = st.selectbox("Status", ["All"] + STATUS_OPTIONS, key="alerts_filter_status")
         with cols[1]:
@@ -168,12 +179,16 @@ def _render_filters():
         with cols[2]:
             type_filter = st.selectbox("Alert type", ["All"] + ALERT_TYPE_OPTIONS, key="alerts_filter_type")
         with cols[3]:
+            search_id = st.text_input(
+                "Search by ID", placeholder="e.g. ALERT-1024", key="alerts_filter_search_id",
+            )
+        with cols[4]:
             st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
             if st.button("Clear filters", icon=":material/filter_alt_off:", width="stretch"):
                 st.session_state["_alerts_clear_filters"] = True
                 st.rerun()
 
-    return status_filter, severity_filter, type_filter
+    return status_filter, severity_filter, type_filter, search_id
 
 
 def _status_cell_style(value):

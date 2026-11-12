@@ -183,6 +183,18 @@ def _render_detail_table(user_id: int, start, end):
     st.dataframe(
         table_df.style.map(_status_cell_style, subset=["Status"]),
         width="stretch", hide_index=True,
+        column_config={
+            "Framework": st.column_config.TextColumn(width="small"),
+            "Check": st.column_config.TextColumn(width="medium"),
+            "Status": st.column_config.TextColumn(width="small"),
+            "Last checked": st.column_config.TextColumn(width="medium"),
+            # Wide and fixed rather than "stretch"-shared, so long
+            # recommendations get real room instead of being squeezed
+            # down to fit alongside the other columns - once the row's
+            # total width exceeds the table, the grid's own horizontal
+            # scrollbar lets the user drag left/right to read the rest.
+            "Recommendation": st.column_config.TextColumn(width=500),
+        },
     )
 
     st.markdown("###### Check-by-check findings")
