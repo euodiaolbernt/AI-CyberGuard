@@ -292,9 +292,22 @@ def _set_active_dataset(df: pd.DataFrame, dataset_name: str):
 
 
 def _render_upload_section():
-    tab_upload, tab_cicids, tab_multiformat = st.tabs(
-        ["Upload CSV", "Use CICIDS2017 Dataset", "Multi-Format Upload"]
-    )
+    # The CICIDS2017 Parquet files are ~258MB and deliberately not
+    # shipped with the public repo/cloud deployment (see .gitignore) -
+    # a pre-trained model is bundled instead, so retraining from this
+    # raw dataset was never required for the live demo. Showing this
+    # tab only when the files actually exist (e.g. local dev with the
+    # dataset downloaded separately) avoids presenting a dead option
+    # that always errors on the public deployment.
+    cicids_present, _ = check_cicids2017_files_present()
+    tab_labels = ["Upload CSV"]
+    if cicids_present:
+        tab_labels.append("Use CICIDS2017 Dataset")
+    tab_labels.append("Multi-Format Upload")
+    tabs = st.tabs(tab_labels)
+    tab_upload = tabs[0]
+    tab_cicids = tabs[1] if cicids_present else None
+    tab_multiformat = tabs[-1]
 
     with tab_upload, st.container(key="td_upload_card", border=True):
         st.markdown(
@@ -309,8 +322,9 @@ def _render_upload_section():
         if uploaded_file is not None:
             _handle_csv_upload(uploaded_file)
 
-    with tab_cicids:
-        _render_cicids2017_loader()
+    if tab_cicids is not None:
+        with tab_cicids:
+            _render_cicids2017_loader()
 
     with tab_multiformat:
         _render_multiformat_upload_section()
