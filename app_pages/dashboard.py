@@ -141,16 +141,25 @@ def _render_quick_actions():
     # fighting it with more CSS. Each button keeps its own
     # accent-coloured border (set directly on the <button> below),
     # which is one level, not a second nested card.
+    # All 4 buttons' accent CSS built as ONE <style> block, emitted
+    # BEFORE the flex row opens - emitting one per loop iteration
+    # INSIDE st.container(horizontal=True, ...) made every <style> tag's
+    # own (content-less) markdown wrapper a real flex sibling next to
+    # the buttons, which is what produced the stray extra-wrap/line
+    # artifact when the row wrapped to a second line at narrower
+    # widths. The row itself now contains only the 4 button containers.
+    accent_css = "".join(
+        f'[data-testid="stMain"] .st-key-dash_action_{slug} button {{'
+        f'border-color: {accent}55 !important; color: {accent} !important; '
+        f'background: {accent}14 !important; }}'
+        f'[data-testid="stMain"] .st-key-dash_action_{slug} button:hover {{'
+        f'background: {accent}26 !important; border-color: {accent} !important; }}'
+        for slug, _, _, _, accent in _QUICK_ACTIONS
+    )
+    st.markdown(f"<style>{accent_css}</style>", unsafe_allow_html=True)
+
     with st.container(key="dashboard_quick_actions_row", horizontal=True, gap="small", wrap=True):
         for slug, label, icon, target, accent in _QUICK_ACTIONS:
-            st.markdown(
-                f'<style>[data-testid="stMain"] .st-key-dash_action_{slug} button {{'
-                f'border-color: {accent}55 !important; color: {accent} !important; '
-                f'background: {accent}14 !important; }}'
-                f'[data-testid="stMain"] .st-key-dash_action_{slug} button:hover {{'
-                f'background: {accent}26 !important; border-color: {accent} !important; }}</style>',
-                unsafe_allow_html=True,
-            )
             with st.container(key=f"dash_action_{slug}", width="content"):
                 if st.button(label, icon=icon, key=f"dash_action_btn_{slug}"):
                     jump_to_page(target)
