@@ -35,6 +35,7 @@ would mean a single widget speaks a different, backwards vocabulary
 from every other page - confusing, and risks a HIGH risk_score being
 misread as a HIGH safety score. Kept consistent instead.
 """
+import html
 from datetime import timezone
 
 import pandas as pd
@@ -503,11 +504,15 @@ def _render_engine_breakdown(engine_breakdown: list):
         for entry in engine_breakdown:
             color = _ENGINE_CATEGORY_COLORS.get(entry["category"], "#94A3B8")
             result_text = entry["result"] or entry["category"].title()
+            # vendor/result_text are free-text labels from ~70
+            # independent third-party AV engines via VirusTotal's API,
+            # not app-controlled - escaped before going into raw HTML
+            # so a crafted/unusual vendor label can't inject markup.
             st.markdown(
                 f'<div class="url-engine-row">'
                 f'<span class="url-engine-dot" style="background:{color};"></span>'
-                f'<span class="url-engine-vendor">{entry["vendor"]}</span>'
-                f'<span class="url-engine-result" style="color:{color};">{result_text}</span>'
+                f'<span class="url-engine-vendor">{html.escape(entry["vendor"])}</span>'
+                f'<span class="url-engine-result" style="color:{color};">{html.escape(result_text)}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )

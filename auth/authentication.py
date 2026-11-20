@@ -40,6 +40,7 @@ from auth.validation import validate_email_format
 from database.models import (
     create_user,
     get_user_by_email,
+    get_user_by_id,
     get_user_by_username,
     update_last_login,
 )
@@ -323,6 +324,19 @@ def is_authenticated() -> bool:
             f"Session idle for longer than {config.SESSION_TIMEOUT_MINUTES} minutes."
         )
         return False
+
+    # Re-check against the database, not just the session flags above -
+    # without this, an account disabled or demoted by an admin AFTER
+    # this browser session started keeps its ORIGINAL privileges
+    # (role/is_active cached at login by _set_session()) for up to
+    # SESSION_ABSOLUTE_TIMEOUT_MINUTES, since nothing here previously
+    # re-read the user's current row. One indexed primary-key lookup,
+    # same cadence as every other per-page-load query in this app.
+    user = get_user_by_id(st.session_state["user_id"])
+    if user is None or not user["is_active"]:
+        _expire_session("Your account is no longer active.")
+        return False
+    st.session_state["role"] = user["role"]
 
     st.session_state["last_active_at"] = now
     return True

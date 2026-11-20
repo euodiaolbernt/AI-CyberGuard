@@ -114,6 +114,16 @@ GOOGLE_SAFE_BROWSING_API_KEY = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY", "")
 # so it can't be reset by opening a new browser tab/session, and holds
 # even if two scans from the same user land concurrently.
 URL_SCAN_COOLDOWN_SECONDS = int(os.getenv("URL_SCAN_COOLDOWN_SECONDS", "10"))
+# Per-user cooldown between Threat Detection's own expensive actions
+# (Train Models, Run AI Detection, Train New Model & Run Detection) -
+# same server-side-cooldown mechanism as URL_SCAN_COOLDOWN_SECONDS
+# above, just a longer window since these do real model training/bulk
+# DB inserts against the shared TiDB backend rather than one API call.
+# Today's disable-while-running button guards (app_pages/threat_detection.py)
+# only stop a double-click DURING one run - this is what stops a user
+# from re-triggering another expensive run back-to-back immediately
+# after one finishes.
+ML_ACTION_COOLDOWN_SECONDS = int(os.getenv("ML_ACTION_COOLDOWN_SECONDS", "30"))
 
 # --- Google OAuth ("Continue with Google" login) ---
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")

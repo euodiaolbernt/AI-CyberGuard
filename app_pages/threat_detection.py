@@ -35,6 +35,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import config
+from auth.rate_limit import check_and_bump_cooldown
 from compliance.compliance_engine import build_network_event, process_security_event
 from database.models import (
     delete_network_traffic,
@@ -724,7 +725,7 @@ def _render_pipeline_controls(df: pd.DataFrame, label_col):
     if bundle is not None:
         _render_preprocessing_summary(bundle)
 
-    if train_clicked:
+    if train_clicked and _check_ml_cooldown():
         st.session_state["td_train_running"] = True
         try:
             _handle_train(bundle, st.session_state.get("td_dataset_name", "uploaded.csv"))
@@ -772,6 +773,24 @@ def _render_preprocessing_summary(bundle: dict):
                 )
 
         st.dataframe(bundle["X"].head(5), width="stretch")
+
+
+def _check_ml_cooldown() -> bool:
+    """Per-user server-side cooldown shared by Train Models, Run AI
+    Detection, and Train New Model & Run Detection - the disable-while-
+    running button guards only stop a double-click DURING one run; this
+    is what stops the same user from re-triggering another expensive
+    training/bulk-detection run back-to-back immediately after one
+    finishes, against the shared TiDB backend. Same mechanism as
+    url_scanner.py's own cooldown (auth/rate_limit.py), just a longer
+    window via config.ML_ACTION_COOLDOWN_SECONDS."""
+    user_id = st.session_state.get("user_id")
+    allowed, retry_after = check_and_bump_cooldown(
+        "ML_ACTION_USER", str(user_id), config.ML_ACTION_COOLDOWN_SECONDS
+    )
+    if not allowed:
+        st.warning(f"Please wait {retry_after} second(s) before starting another training/detection run.")
+    return allowed
 
 
 def _handle_train(bundle, dataset_name):
@@ -1021,7 +1040,7 @@ def _render_detection_section(df):
         if st.button(
             "Run AI Detection", type="primary", icon=":material/radar:", width="stretch",
             disabled=st.session_state.get("td_detect_running", False),
-        ):
+        ) and _check_ml_cooldown():
             st.session_state["td_detect_running"] = True
             try:
                 with st.spinner(f"Running AI detection on {len(df):,} record(s)..."):
@@ -1082,7 +1101,7 @@ def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict
         type="primary", icon=":material/model_training:", width="stretch",
         key="td_auto_train_detect",
         disabled=st.session_state.get("td_auto_train_running", False),
-    ):
+    ) and _check_ml_cooldown():
         st.session_state["td_auto_train_running"] = True
         try:
             _train_and_detect_for_incompatible_schema(df, label_col)
