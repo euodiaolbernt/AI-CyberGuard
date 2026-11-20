@@ -89,7 +89,7 @@ def _ssl_kwargs() -> dict:
     return kwargs
 
 
-def get_connection():
+def get_connection(_retry: bool = True):
     """Return a connection from the pool (see _get_pool()). Every
     existing caller's own `conn.close()` already returns it to the
     pool rather than tearing down the TCP connection - no caller needs
@@ -98,9 +98,32 @@ def get_connection():
     of mysql.connector.Error, so it's already caught by the same
     try/except mysql.connector.Error handling in app.py that a plain
     connection failure was always caught by.
-    """
+
+    A connection pulled from the pool gets one cheap liveness check
+    (conn.ping(reconnect=True)) before being handed to the caller.
+    mysql-connector's own pool already does something similar at
+    checkout (an internal is_connected() call) - but that check can
+    itself raise instead of cleanly reporting "not connected" on a
+    half-dead socket, which would otherwise leak that pool slot
+    forever (never reconnected, never replaced). This matters
+    specifically against TiDB Cloud's Starter/Serverless tier, which
+    can idle-pause connections over a long session (e.g. a viva demo
+    left open for a while). On a ping failure, the WHOLE pool is
+    dropped and rebuilt once (not just the one connection - simplest
+    reliable recovery), with exactly one retry; a genuine outage still
+    raises mysql.connector.Error unchanged, through the same existing
+    handling."""
     with timed("get_connection (pool checkout)"):
-        return _get_pool().get_connection()
+        try:
+            conn = _get_pool().get_connection()
+            conn.ping(reconnect=True, attempts=2, delay=1)
+            return conn
+        except MySQLError:
+            if not _retry:
+                raise
+            global _pool
+            _pool = None  # drop the whole pool; GC closes its sockets
+            return get_connection(_retry=False)
 
 
 def test_connection():

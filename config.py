@@ -46,25 +46,54 @@ _load_streamlit_secrets_into_env()
 # restarted (a Streamlit "rerun" alone re-executes app.py, not this
 # already-imported module).
 
-# --- Database (MySQL) ---
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "ai_cyberguard")
+# --- Database (MySQL / TiDB) ---
+# DB_PROFILE selects which connection profile below is active for a
+# LOCAL run. Streamlit Community Cloud's own Secrets dashboard never
+# sets DB_PROFILE or any <PROFILE>_DB_* name - it only ever sets the
+# flat DB_HOST/DB_PORT/etc. names directly (bridged into os.environ by
+# _load_streamlit_secrets_into_env() above), so _db_env() below always
+# falls through to those flat names there, completely unchanged from
+# before DB_PROFILE existed. Locally: DB_PROFILE=TIDB (the default)
+# points this process at the SAME TiDB Cloud database Streamlit Cloud
+# uses, so local dev and the live deployment share one database.
+# DB_PROFILE=LOCAL switches back to XAMPP MySQL, kept installed as an
+# offline backup. Changing .env needs a full restart of
+# `streamlit run app.py` - a Streamlit rerun does not reload it (see
+# the note above this section).
+DB_PROFILE = os.getenv("DB_PROFILE", "TIDB").strip().upper()
+if DB_PROFILE not in ("LOCAL", "TIDB"):
+    DB_PROFILE = "TIDB"  # fail safe to the shared database on a typo, never crash
 
-# TLS to MySQL - opt-in, defaults to today's plain local-dev behavior.
-# DISABLED (default): no change from before this hardening pass.
+
+def _db_env(name: str, default: str = "") -> str:
+    """Resolve one DB_* setting for the active profile: a
+    <DB_PROFILE>_<name> value wins if set (local .env's per-profile
+    blocks), otherwise fall through to the flat <name> (Streamlit
+    Cloud's Secrets, or an old-style local .env that hasn't adopted
+    DB_PROFILE blocks yet)."""
+    prefixed = os.environ.get(f"{DB_PROFILE}_{name}")
+    return prefixed if prefixed else os.getenv(name, default)
+
+
+DB_HOST = _db_env("DB_HOST", "localhost")
+DB_PORT = int(_db_env("DB_PORT", "3306"))
+DB_USER = _db_env("DB_USER", "root")
+DB_PASSWORD = _db_env("DB_PASSWORD", "")
+DB_NAME = _db_env("DB_NAME", "ai_cyberguard")
+
+# TLS to MySQL/TiDB - opt-in, defaults to today's plain local-dev
+# behavior. DISABLED: no encryption (XAMPP's usual local setup).
 # REQUIRED: encrypt the connection but don't verify the server's
 #   certificate (better than nothing on an untrusted network, but
-#   doesn't stop a MITM with its own cert).
+#   doesn't stop a MITM with its own cert) - TiDB Cloud requires at
+#   least this.
 # VERIFY_CA / VERIFY_IDENTITY: encrypt AND verify the server certificate
 #   against DB_SSL_CA (VERIFY_IDENTITY additionally checks the hostname
 #   matches the certificate) - get_connection() in database/connection.py
 #   refuses to connect rather than silently falling back to no
 #   verification if DB_SSL_CA is missing under either of these two modes.
-DB_SSL_MODE = os.getenv("DB_SSL_MODE", "DISABLED").strip().upper()
-DB_SSL_CA = os.getenv("DB_SSL_CA", "").strip() or None
+DB_SSL_MODE = _db_env("DB_SSL_MODE", "DISABLED").strip().upper()
+DB_SSL_CA = _db_env("DB_SSL_CA", "").strip() or None
 
 # Connection pool size (database/connection.py) - real connections kept
 # open and reused across reruns instead of a fresh TCP+auth handshake
@@ -132,7 +161,14 @@ MAX_UPLOAD_ROWS = int(os.getenv("MAX_UPLOAD_ROWS", "3000000"))
 # password is a common, if weak, local MySQL root setup, not a missing
 # setting. Google OAuth and VirusTotal are optional integrations with
 # their own has_*_configured() checks, not startup requirements.
-REQUIRED_ENV_VARS = ["DB_HOST", "DB_USER", "DB_NAME"]
+#
+# Checked against the RESOLVED values (DB_HOST etc., already resolved
+# above via _db_env() for whichever DB_PROFILE is active), never the
+# raw flat env var names directly - a local DB_PROFILE=TIDB run only
+# ever sets TIDB_DB_HOST, not a flat DB_HOST, so checking os.environ
+# for the flat name would wrongly report it "missing" even when the
+# app would connect fine.
+_REQUIRED_DB_SETTINGS = {"DB_HOST": DB_HOST, "DB_USER": DB_USER, "DB_NAME": DB_NAME}
 
 
 def validate_required_env():
@@ -140,7 +176,7 @@ def validate_required_env():
     returning the actual values - only which variable NAMES are
     missing. Returns (ok, missing_names, warnings); call once at
     startup (see app.py) before anything tries to use the database."""
-    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
+    missing = [name for name, value in _REQUIRED_DB_SETTINGS.items() if not value]
 
     warnings = []
     google_vars = (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AUTH_COOKIE_SECRET)
@@ -157,6 +193,25 @@ def validate_required_env():
             f"DB_SSL_MODE={DB_SSL_MODE} requires DB_SSL_CA (path to a CA "
             "certificate) - the database connection will fail until it's set."
         )
+    # Only meaningful for a local run - Streamlit Cloud never sets
+    # DB_PROFILE, so this block is always skipped there.
+    if os.getenv("DB_PROFILE", "").strip().upper() in ("LOCAL", "TIDB"):
+        # DB_PASSWORD excluded, same reasoning as _REQUIRED_DB_SETTINGS
+        # above - an empty password is a legitimate, common local MySQL
+        # root setup, not a sign the profile is half-configured. A
+        # genuinely missing TiDB password still fails loudly, with a
+        # clear "Access denied" error, the moment something connects.
+        half_set = [
+            n for n in ("DB_HOST", "DB_USER", "DB_NAME")
+            if not os.environ.get(f"{DB_PROFILE}_{n}")
+        ]
+        if half_set:
+            warnings.append(
+                f"DB_PROFILE={DB_PROFILE} but {', '.join(f'{DB_PROFILE}_{n}' for n in half_set)} "
+                f"{'is' if len(half_set) == 1 else 'are'} not set in .env - this run may silently mix "
+                f"{DB_PROFILE} and the other profile's values. Fill in every "
+                f"{DB_PROFILE}_DB_* value before using this profile."
+            )
 
     return not missing, missing, warnings
 

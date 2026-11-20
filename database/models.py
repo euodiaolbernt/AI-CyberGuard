@@ -458,7 +458,7 @@ def get_recent_threats(user_id: int, limit: int = 10, start_date=None, end_date=
 THREAT_DETECTION_INSERT_BATCH_SIZE = 2000
 
 
-def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> int:
+def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> list[int]:
     """Bulk-insert one row per AI prediction, all owned by `user_id`
     (the analyst who uploaded/ran this batch). `results_df` must come
     from ml/prediction.py:run_detection() - real model output only,
@@ -471,13 +471,25 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
     silently missing) sitting in the table. Raises back to the caller
     on failure - it never swallows an error and pretends success.
 
-    Returns the first inserted row's id. Because every statement here
-    runs on one connection with no other writer interleaved, MySQL
-    guarantees the auto-increment ids handed out are contiguous from
-    that first id - so the caller can recover every row's real id as
-    range(first_id, first_id + len(df)) without a second round-trip,
-    which is what lets the compliance engine (Step 7) look up the real
-    detection each event refers to."""
+    Returns every inserted row's REAL id, in the same order as
+    `results_df`, fetched with a follow-up SELECT scoped to
+    `traffic_id` - a fresh network_traffic row exists per detection
+    run (see insert_network_traffic), so traffic_id alone unambiguously
+    selects exactly this call's own rows, and ORDER BY id preserves
+    insertion order (auto-increment is always assigned in insertion
+    order, even when the values themselves aren't contiguous).
+
+    PREVIOUSLY this returned only the first row's id and every other
+    row's id was GUESSED as first_id + offset, relying on MySQL's
+    single-node auto-increment being gapless within one executemany()
+    batch. That guess is not safe on TiDB, whose distributed
+    AUTO_ID_CACHE allocator can leave gaps within one batch - a guessed
+    id could point at a row that was never actually inserted, and the
+    compliance engine (Step 7) writing that guessed id as
+    compliance_results.related_detection_id then failed with a foreign
+    key violation (error 1452) for a detection that was, in fact, saved
+    correctly under a different real id. Fetching the real ids here
+    removes the guess entirely, on both MySQL and TiDB."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -496,7 +508,6 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
             for r in results_df.to_dict("records")
         ]
 
-        first_id = None
         insert_sql = (
             "INSERT INTO threat_detections "
             "(user_id, traffic_id, record_index, prediction, attack_type, confidence, risk_score, severity, model_used) "
@@ -505,8 +516,17 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
         for start in range(0, len(rows), THREAT_DETECTION_INSERT_BATCH_SIZE):
             chunk = rows[start:start + THREAT_DETECTION_INSERT_BATCH_SIZE]
             cursor.executemany(insert_sql, chunk)
-            if first_id is None:
-                first_id = cursor.lastrowid
+
+        cursor.execute(
+            "SELECT id FROM threat_detections WHERE traffic_id = %s ORDER BY id",
+            (traffic_id,),
+        )
+        detection_ids = [row[0] for row in cursor.fetchall()]
+        if len(detection_ids) != len(rows):
+            raise RuntimeError(
+                f"Inserted {len(rows)} threat_detections row(s) for traffic_id={traffic_id} "
+                f"but only found {len(detection_ids)} on read-back - refusing to guess ids."
+            )
 
         conn.commit()
         get_threat_summary.clear()
@@ -515,7 +535,7 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
         get_threat_detections_in_range.clear()
         get_detection_trend.clear()
         get_recent_threats.clear()
-        return first_id
+        return detection_ids
     except Exception:
         conn.rollback()
         raise

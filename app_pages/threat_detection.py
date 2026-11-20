@@ -1237,7 +1237,7 @@ def _run_detection(df: pd.DataFrame, loaded, prepared: tuple | None = None):
         return
 
     try:
-        first_id = insert_threat_detections_bulk(traffic_id, results_df, user_id)
+        detection_ids = insert_threat_detections_bulk(traffic_id, results_df, user_id)
     except Exception as e:
         # The traffic row above already committed on its own connection -
         # without this, a failed detections insert leaves it dangling
@@ -1261,7 +1261,7 @@ def _run_detection(df: pd.DataFrame, loaded, prepared: tuple | None = None):
         f"({len(results_df)} records, {malicious_count} malicious).",
     )
 
-    alerts_created = _run_compliance_for_significant_detections(results_df, first_id, user_id)
+    alerts_created = _run_compliance_for_significant_detections(results_df, detection_ids, user_id)
 
     st.session_state["td_detection_results"] = results_df
     st.session_state["td_detection_ground_truth_eval"] = _compute_detection_ground_truth_eval(
@@ -1314,13 +1314,14 @@ def _compute_detection_ground_truth_eval(df: pd.DataFrame, label_col, results_df
     }
 
 
-def _run_compliance_for_significant_detections(results_df: pd.DataFrame, first_id: int, user_id: int) -> int:
+def _run_compliance_for_significant_detections(results_df: pd.DataFrame, detection_ids: list[int], user_id: int) -> int:
     """Evaluate compliance (Step 7) and create alerts (Step 8) for
     every HIGH/CRITICAL detection in this batch, all owned by
-    `user_id`. `first_id` is the first row's real database id (see
-    insert_threat_detections_bulk's docstring) - ids for the rest of
-    the batch are sequential from there since they were inserted in
-    one executemany() call."""
+    `user_id`. `detection_ids[i]` is row i's REAL threat_detections.id
+    (see insert_threat_detections_bulk's docstring) - fetched with a
+    follow-up SELECT rather than guessed from an offset, which is
+    required for correctness on TiDB (auto-increment ids aren't
+    guaranteed contiguous within one bulk insert there)."""
     significant = results_df[results_df["severity"].isin(COMPLIANCE_SEVERITY_THRESHOLD)]
     alerts_created = 0
 
@@ -1328,7 +1329,7 @@ def _run_compliance_for_significant_detections(results_df: pd.DataFrame, first_i
         if row["severity"] not in COMPLIANCE_SEVERITY_THRESHOLD:
             continue
         detection = dict(row)
-        detection["id"] = first_id + offset
+        detection["id"] = detection_ids[offset]
         event = build_network_event(detection, user_id)
         outcome = process_security_event(event)
         if outcome["alert_id"] is not None:

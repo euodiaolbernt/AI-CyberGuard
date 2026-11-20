@@ -621,12 +621,12 @@ def main():
         feats = bundle["X"].head(400)
         det = run_detection(feats, tr["models"], tr["label_encoder"], tr, tr["best_model"])
         tid = M.insert_network_traffic("synthetic-e2e", uidA, len(det), feats.shape[1])
-        first = M.insert_threat_detections_bulk(tid, det, uidA)
+        detection_ids = M.insert_threat_detections_bulk(tid, det, uidA)
         n_alert_before = M.get_alert_count(uidA)
         n_events = 0
         for i, r in enumerate(det.to_dict("records")):
             if r["prediction"] == "MALICIOUS" and r["severity"] in ("HIGH", "CRITICAL"):
-                ev = CE.build_network_event({**r, "id": first + i}, uidA)
+                ev = CE.build_network_event({**r, "id": detection_ids[i]}, uidA)
                 CE.process_security_event(ev); n_events += 1
         n_alert_after = M.get_alert_count(uidA)
         expected_alerts = int(((det.prediction == "MALICIOUS") & (det.risk_score >= 80) & det.severity.isin(["HIGH", "CRITICAL"])).sum())
