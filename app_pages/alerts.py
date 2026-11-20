@@ -102,6 +102,17 @@ def render_alerts_page():
     _render_summary_cards(user_id, start_date, end_date)
     st.divider()
 
+    _render_alerts_fragment(user_id, start_date, end_date)
+
+
+@st.fragment
+def _render_alerts_fragment(user_id: int, start_date, end_date):
+    """Filter bar + table + per-alert detail loop, in one fragment - a
+    filter tweak or status update reruns only this section, not the
+    whole page (banner, summary cards, Global Cyber Time Navigator
+    above it). Same pattern as url_scanner.py's
+    _render_scanner_fragment(); nothing here changes what's persisted,
+    only which part of the page redraws afterward."""
     status_filter, severity_filter, type_filter, search_id = _render_filters()
     severities = None if not severity_filter or len(severity_filter) == len(SEVERITY_ORDER) else severity_filter
 

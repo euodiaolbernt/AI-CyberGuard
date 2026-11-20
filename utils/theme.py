@@ -272,7 +272,18 @@ _KPI_CARD_LAYOUT_CSS = """
 """
 
 
-def inject_global_theme():
+@st.cache_data(show_spinner=False)
+def _build_theme_css() -> str:
+    """The actual ~109KB CSS string, built once per process and reused
+    on every rerun instead of being re-built (pure f-string formatting
+    work, no I/O beyond the two cheap Path.is_file() checks below)
+    every single time any button anywhere in the app is clicked.
+    Parameter-free and deterministic for the process's lifetime - the
+    only "inputs" are the two background image files' presence on
+    disk, which doesn't change while the app is running - so caching
+    with no TTL/args is safe. Split out from inject_global_theme()
+    purely so the expensive part (the string) is what's cached, not
+    the st.markdown() call itself."""
     # Skipped entirely (not even an empty background-image: none) when
     # the file genuinely isn't there - the app just keeps its plain
     # light background from .streamlit/config.toml, no broken-image
@@ -359,7 +370,7 @@ def inject_global_theme():
         'background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(224, 242, 254, 0.55)) !important;'
     )
 
-    st.markdown(
+    return (
         f"""
         <style>
         {_background_css}
@@ -2622,6 +2633,11 @@ def inject_global_theme():
             border-radius: 14px !important;
         }}
         </style>
-        """,
-        unsafe_allow_html=True,
+        """
     )
+
+
+def inject_global_theme():
+    """Must only ever be called from app.py's render_app() (see module
+    docstring) - renders the cached CSS built by _build_theme_css()."""
+    st.markdown(_build_theme_css(), unsafe_allow_html=True)

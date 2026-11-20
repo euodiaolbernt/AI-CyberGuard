@@ -89,7 +89,16 @@ def _record_failure(scope: str, identifier: str, window_seconds: int, max_attemp
     """Atomically increment (scope, identifier)'s attempt count,
     resetting it first if its window has already expired, then lock it
     out (with a cooldown that grows per extra attempt but never exceeds
-    lockout_max_seconds) once max_attempts is exceeded."""
+    lockout_max_seconds) once max_attempts is exceeded.
+
+    The lockout check is itself a single atomic conditional UPDATE -
+    `over`/`cooldown` are computed server-side from the row's own
+    just-incremented attempt_count, not read back into Python and
+    decided on separately (same pattern as check_and_bump_cooldown()
+    below). A SELECT-then-UPDATE here would leave a TOCTOU window where
+    two near-simultaneous failures on the same identifier each read a
+    stale attempt_count and the later UPDATE blindly overwrites the
+    earlier one's locked_until with a value computed from stale data."""
     try:
         conn = get_connection()
     except Exception:
@@ -110,19 +119,12 @@ def _record_failure(scope: str, identifier: str, window_seconds: int, max_attemp
         conn.commit()
 
         cursor.execute(
-            "SELECT attempt_count FROM rate_limit_counters WHERE scope = %s AND identifier = %s",
-            (scope, identifier),
+            "UPDATE rate_limit_counters SET locked_until = NOW() + INTERVAL "
+            "LEAST(%s * (attempt_count - %s + 1), %s) SECOND "
+            "WHERE scope = %s AND identifier = %s AND attempt_count >= %s",
+            (lockout_seconds, max_attempts, lockout_max_seconds, scope, identifier, max_attempts),
         )
-        row = cursor.fetchone()
-        if row and row[0] >= max_attempts:
-            over = row[0] - max_attempts + 1
-            cooldown = min(lockout_seconds * over, lockout_max_seconds)
-            cursor.execute(
-                "UPDATE rate_limit_counters SET locked_until = NOW() + INTERVAL %s SECOND "
-                "WHERE scope = %s AND identifier = %s",
-                (cooldown, scope, identifier),
-            )
-            conn.commit()
+        conn.commit()
     except Exception:
         pass
     finally:

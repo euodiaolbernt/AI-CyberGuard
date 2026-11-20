@@ -789,6 +789,27 @@ def seed_compliance_rules(rule_defs: list):
             rule_defs,
         )
         conn.commit()
+        get_compliance_rule_lookup.clear()
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def get_compliance_rule_lookup() -> dict:
+    """{rule_code: {id, recommended_action}} for the whole static
+    compliance_rules catalog - small and rarely-changing (only
+    seed_compliance_rules() above writes to it, which clears this
+    cache), so this is a correctness-safe win: save_compliance_results()
+    below used to run this exact SELECT fresh on every single call,
+    and _run_compliance_for_significant_detections()
+    (app_pages/threat_detection.py) calls that once per HIGH/CRITICAL
+    detection row - thousands of redundant identical queries for one
+    detection run on a dataset with many high-risk rows."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, rule_code, recommended_action FROM compliance_rules")
+        return {r["rule_code"]: r for r in cursor.fetchall()}
     finally:
         conn.close()
 
@@ -800,14 +821,14 @@ def save_compliance_results(results: list, user_id: int):
     dict needs: rule_code, status, reason, evidence,
     related_detection_id, related_url_scan_id. The rule's canonical
     recommended_action is looked up from compliance_rules (defined
-    once per rule there, not re-typed per result)."""
+    once per rule there, not re-typed per result), via the cached
+    get_compliance_rule_lookup() above rather than a fresh query every
+    call."""
     if not results:
         return
     conn = get_connection()
     try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, rule_code, recommended_action FROM compliance_rules")
-        rule_lookup = {r["rule_code"]: r for r in cursor.fetchall()}
+        rule_lookup = get_compliance_rule_lookup()
 
         rows = []
         for r in results:

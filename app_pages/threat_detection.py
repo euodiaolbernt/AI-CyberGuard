@@ -697,7 +697,10 @@ def _render_pipeline_controls(df: pd.DataFrame, label_col):
     with col2, st.container(key="td_action_preprocess"):
         preprocess_clicked = st.button("Preprocess Data", width="stretch", icon=":material/cleaning_services:")
     with col3, st.container(key="td_action_train"):
-        train_clicked = st.button("Train Models", width="stretch", icon=":material/model_training:")
+        train_clicked = st.button(
+            "Train Models", width="stretch", icon=":material/model_training:",
+            disabled=st.session_state.get("td_train_running", False),
+        )
 
     if validate_clicked:
         st.session_state["td_validation"] = validate_dataset(df, label_col)
@@ -722,7 +725,11 @@ def _render_pipeline_controls(df: pd.DataFrame, label_col):
         _render_preprocessing_summary(bundle)
 
     if train_clicked:
-        _handle_train(bundle, st.session_state.get("td_dataset_name", "uploaded.csv"))
+        st.session_state["td_train_running"] = True
+        try:
+            _handle_train(bundle, st.session_state.get("td_dataset_name", "uploaded.csv"))
+        finally:
+            st.session_state["td_train_running"] = False
 
 
 def _render_preprocessing_summary(bundle: dict):
@@ -1011,9 +1018,16 @@ def _render_detection_section(df):
             return
 
         st.success("Compatible with Existing Model - ready for prediction.")
-        if st.button("Run AI Detection", type="primary", icon=":material/radar:", width="stretch"):
-            with st.spinner(f"Running AI detection on {len(df):,} record(s)..."):
-                _run_detection(df, loaded)
+        if st.button(
+            "Run AI Detection", type="primary", icon=":material/radar:", width="stretch",
+            disabled=st.session_state.get("td_detect_running", False),
+        ):
+            st.session_state["td_detect_running"] = True
+            try:
+                with st.spinner(f"Running AI detection on {len(df):,} record(s)..."):
+                    _run_detection(df, loaded)
+            finally:
+                st.session_state["td_detect_running"] = False
 
         results = st.session_state.get("td_detection_results")
         if results is not None:
@@ -1067,8 +1081,13 @@ def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict
         "Train New Model on This Dataset & Run Detection",
         type="primary", icon=":material/model_training:", width="stretch",
         key="td_auto_train_detect",
+        disabled=st.session_state.get("td_auto_train_running", False),
     ):
-        _train_and_detect_for_incompatible_schema(df, label_col)
+        st.session_state["td_auto_train_running"] = True
+        try:
+            _train_and_detect_for_incompatible_schema(df, label_col)
+        finally:
+            st.session_state["td_auto_train_running"] = False
 
 
 def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
@@ -1417,7 +1436,14 @@ def _render_detection_results(results_df: pd.DataFrame):
                 st.write(f"Model: {row['model_used']}")
 
     st.markdown("**Full detection table**")
-    st.dataframe(_detection_table_style(results_df), width="stretch", hide_index=True)
+    _DETECTION_TABLE_PREVIEW_ROWS = 500
+    if len(results_df) > _DETECTION_TABLE_PREVIEW_ROWS:
+        st.caption(
+            f"Showing the first {_DETECTION_TABLE_PREVIEW_ROWS:,} of {len(results_df):,} "
+            "record(s) - use the export buttons below for the complete set."
+        )
+    preview_df = results_df.head(_DETECTION_TABLE_PREVIEW_ROWS)
+    st.dataframe(_detection_table_style(preview_df), width="stretch", hide_index=True)
 
     _render_results_export(results_df)
 

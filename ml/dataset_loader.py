@@ -121,6 +121,16 @@ def clean_cicids2017(df: pd.DataFrame, progress_callback=None) -> tuple[pd.DataF
           RARE_CLASS_THRESHOLD (informational only - never removed)
         - rows_before / rows_after
     """
+    # Kept intentionally (unlike ml/preprocessing.py's redundant
+    # copies) - when KNOWN_ZERO_VARIANCE_COLUMNS finds nothing to drop
+    # (the `if zero_var_cols:` branch below never runs), `working`
+    # would otherwise be the exact same object as `df` (plain name
+    # aliasing, not a derived/sliced object) - Copy-on-Write only
+    # protects a dataframe DERIVED from another via slicing/selection,
+    # it can't protect an object from itself. Verified directly: with
+    # `working = df` and no columns dropped, the later
+    # `working[col] = working[col].clip(...)` mutated the caller's
+    # `df` in place.
     working = df.copy()
     report = {
         "rows_before": len(working),

@@ -360,7 +360,12 @@ def transform_features(feature_df: pd.DataFrame, artifacts: dict) -> pd.DataFram
             + ", ".join(missing_cols)
         )
 
-    df = feature_df[raw_feature_names].copy()
+    # No .copy() here - feature_df[raw_feature_names] already returns a
+    # new object (confirmed under pandas 3.0's Copy-on-Write, always on
+    # since this version), and sanitize_dataframe() below copies again
+    # internally before mutating - an explicit copy here would just be
+    # a second, wasted full-size allocation of the same data.
+    df = feature_df[raw_feature_names]
     df, _ = sanitize_dataframe(df, artifacts["numeric_cols"])
     for c in artifacts["categorical_cols"]:
         df[c] = df[c].astype(str)
@@ -380,7 +385,14 @@ def preprocess_dataset(df: pd.DataFrame, label_col, exclude_cols: list | None = 
     to avoid the test split ever leaking into a fitted transformer.
     Returns a dict bundle used by both the UI (to show a summary) and
     ml/train_model.py (to train on)."""
-    working = df.copy()
+    # No .copy() here - working.drop(columns=drop_cols) a few lines
+    # down always runs unconditionally (even with an empty drop_cols
+    # list, .drop() still returns a brand-new DataFrame under pandas'
+    # Copy-on-Write semantics, confirmed directly), so `working` is
+    # already a fresh, independent object by the time anything mutates
+    # it - an upfront copy here was a wasted full-size allocation of
+    # `df` that nothing ever used before being immediately replaced.
+    working = df
 
     manually_excluded = [c for c in (exclude_cols or []) if c in working.columns and c != label_col]
     if manually_excluded:
