@@ -1030,12 +1030,14 @@ def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict
     button above already uses (Workflow B) - and run detection with it
     immediately, behind ONE explicit click (never silent/automatic).
     Without a usable label column, explains why automatic training
-    isn't possible rather than attempting it and failing."""
-    st.error(
-        "**Incompatible Feature Schema** - this dataset's columns don't match "
-        f"the active model (trained on **{meta['dataset_name']}**)."
-    )
-
+    isn't possible rather than attempting it and failing. Deliberately
+    no st.error() here for the mismatch itself - training a fresh
+    per-dataset model (see models/<slug>/ in ml/train_model.py) is the
+    normal, expected path for a new dataset, not a failure state;
+    the compatibility summary expander above already shows exactly
+    which columns matched, and the info box below explains what
+    happens next, so a red "Incompatible Feature Schema" banner on
+    every single new upload was alarming without being useful."""
     if label_col is None:
         st.warning(
             "This dataset has no detected target/label column, so a new "
