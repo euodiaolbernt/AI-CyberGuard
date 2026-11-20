@@ -222,6 +222,13 @@ def _render_detail_table(user_id: int, start, end):
         on_select="rerun", selection_mode="single-row", key="compliance_findings_table",
     )
     selected_rows = table_event.selection.rows if table_event.selection else []
+    # The table's selection persists across reruns by its fixed key,
+    # independent of how many rows are currently shown - changing the
+    # framework filter, the search box, or re-running the self-
+    # assessment can shrink `rows` out from under a previously-
+    # selected index. Treat a now out-of-range index as "no selection"
+    # rather than crashing on rows[selected_rows[0]].
+    selected_rows = [i for i in selected_rows if i < len(rows)]
     if selected_rows:
         _render_selected_finding_detail(rows[selected_rows[0]])
 
