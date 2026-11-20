@@ -145,13 +145,21 @@ def load_xref(tidb_conn, table: str) -> dict:
 
 
 def record_xref(cur, table: str, pairs: list[tuple[int, int | None]]):
+    """Chunked the same way the real INSERTs above already are
+    (INSERT_BATCH_SIZE) - a single unchunked executemany() over, say,
+    1.8 million threat_detections pairs built one giant SQL packet
+    that exceeded TiDB's max_allowed_packet and crashed the whole run
+    with nothing committed (found by actually running this migration
+    at full scale, not a hypothetical)."""
     if not pairs:
         return
-    cur.executemany(
-        "INSERT INTO _migration_xref (source_table, source_id, target_id) VALUES (%s, %s, %s) "
-        "ON DUPLICATE KEY UPDATE target_id = VALUES(target_id)",
-        [(table, sid, tid) for sid, tid in pairs],
-    )
+    rows = [(table, sid, tid) for sid, tid in pairs]
+    for start in range(0, len(rows), INSERT_BATCH_SIZE):
+        cur.executemany(
+            "INSERT INTO _migration_xref (source_table, source_id, target_id) VALUES (%s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE target_id = VALUES(target_id)",
+            rows[start:start + INSERT_BATCH_SIZE],
+        )
 
 
 # ---------------------------------------------------------------
@@ -336,13 +344,21 @@ def migrate_threat_detections(local_conn, tidb_conn, apply_: bool, limit, verbos
         "attack_type, confidence, risk_score, severity, model_used, detected_at) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
     )
-    new_pairs = []
 
     # Group pending rows by their LOCAL traffic_id, preserving order.
     groups: dict[int | None, list] = {}
     for r in pending:
         groups.setdefault(r["traffic_id"], []).append(r)
 
+    # Committed PER GROUP, not once for the whole table - a dataset
+    # with a couple million detection rows built one single-commit
+    # transaction big enough to exceed TiDB's transaction/packet size
+    # limits (found by actually running this at full scale). Committing
+    # per traffic_id keeps each transaction to one dataset's worth of
+    # rows, and is still perfectly safe to resume: the xref table is
+    # updated in the SAME commit as its rows, so a crash between groups
+    # just means the next run retries the one group that was never
+    # committed, never a duplicate of one that was.
     for local_traffic_id, group_rows in groups.items():
         target_traffic_id = None
         if local_traffic_id is not None:
@@ -391,14 +407,14 @@ def migrate_threat_detections(local_conn, tidb_conn, apply_: bool, limit, verbos
                 tcur.execute(insert_sql, row)
                 new_ids.append(tcur.lastrowid)
 
+        group_pairs = []
         for r, new_id in zip(group_rows, new_ids):
             id_map[r["id"]] = new_id
-            new_pairs.append((r["id"], new_id))
+            group_pairs.append((r["id"], new_id))
+        record_xref(tcur, "threat_detections", group_pairs)
+        tidb_conn.commit()
         rep.migrated += len(group_rows)
 
-    if apply_:
-        record_xref(tcur, "threat_detections", new_pairs)
-        tidb_conn.commit()
     rep.after = rep.before + rep.migrated if apply_ else None
     return rep, id_map
 
@@ -571,6 +587,16 @@ def migrate_compliance_results(local_conn, tidb_conn, apply_: bool, limit, verbo
         id_map[r["id"]] = tcur.lastrowid
         new_pairs.append((r["id"], tcur.lastrowid))
         rep.migrated += 1
+
+        # Committed every INSERT_BATCH_SIZE rows, not once for the
+        # whole table - compliance_results can run into six figures of
+        # rows (same reasoning as threat_detections' per-group commits
+        # above: keeps any one transaction bounded, and a crash
+        # mid-table only costs the uncommitted tail, never a duplicate).
+        if apply_ and len(new_pairs) >= INSERT_BATCH_SIZE:
+            record_xref(tcur, "compliance_results", new_pairs)
+            tidb_conn.commit()
+            new_pairs = []
 
     if apply_:
         record_xref(tcur, "compliance_results", new_pairs)
