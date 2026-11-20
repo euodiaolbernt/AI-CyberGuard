@@ -49,7 +49,7 @@ from ml.dataset_loader import (
     load_and_clean_cicids2017,
 )
 from ml.file_loader import FORMAT_BADGES, DatasetLoadError, load_uploaded_dataset
-from ml.prediction import run_detection
+from ml.prediction import run_detection, run_detection_on_prepared
 from ml.preprocessing import (
     check_schema_compatibility,
     derive_binary_label,
@@ -282,11 +282,24 @@ def _set_active_dataset(df: pd.DataFrame, dataset_name: str):
     ground-truth evaluation, if any) answers a question about a
     SPECIFIC dataset and must disappear the moment that dataset is
     replaced by a different one, not linger looking like it still
-    describes the newly loaded data."""
+    describes the newly loaded data.
+
+    Column names are stripped of leading/trailing whitespace here, in
+    this one shared choke point, because the original CICIDS2017 CSV
+    export (and similarly-exported files) is well known to pad most
+    header names with a stray leading space. Left unstripped, a column
+    that is genuinely the same feature as one of the active model's
+    raw_feature_names (e.g. "Bwd Packets/s" vs " Bwd Packets/s") would
+    fail the exact-name match in check_schema_compatibility() and get
+    listed as BOTH missing and extra - the two entries render
+    identically once Markdown/HTML collapses the leading space, which
+    is confusing and makes genuinely-compatible datasets look far more
+    mismatched than they are."""
     if dataset_name != st.session_state.get("td_dataset_name"):
         for key in ("td_validation", "td_bundle", "td_detection_results", "td_detection_ground_truth_eval"):
             st.session_state.pop(key, None)
 
+    df.columns = [str(c).strip() for c in df.columns]
     st.session_state["td_df"] = df
     st.session_state["td_dataset_name"] = dataset_name
 
@@ -1058,45 +1071,96 @@ def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict
 
 def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
     dataset_name = st.session_state.get("td_dataset_name", "uploaded.csv")
-    identifier_cols = detect_identifier_columns(df, label_col)
 
-    status = st.status(
-        f"Training a new model on '{dataset_name}' ({len(df):,} rows)...", expanded=True,
-    )
-    with status:
-        def _report_progress(msg: str):
-            st.write(msg)
+    with timed("auto_train_and_detect: total"):
+        # Stage 1/6: Validating Dataset - the same rule-based checks the
+        # manual "Validate Dataset" button runs (ml/preprocessing.py's
+        # validate_dataset()), just run automatically here so a clearly
+        # untrainable upload (too few rows, no usable label, a single
+        # class) is rejected with a real reason before any model
+        # actually starts training on it.
+        with timed("auto_train_and_detect: validate_dataset"):
+            is_valid, messages = validate_dataset(df, label_col)
+        if not is_valid:
+            for m in messages:
+                st.error(m)
+            return
 
-        try:
-            bundle = preprocess_dataset(df, label_col, identifier_cols)
-            if bundle["y_raw"] is None:
+        identifier_cols = detect_identifier_columns(df, label_col)
+
+        status = st.status("Validating dataset...", expanded=True)
+        with status:
+            def _report_progress(msg: str):
+                st.write(msg)
+
+            for m in messages:
+                st.caption(m)
+
+            # Stage 2/6: Preparing Features
+            status.update(label="Preparing features...")
+            try:
+                with timed("auto_train_and_detect: preprocess_dataset"):
+                    bundle = preprocess_dataset(df, label_col, identifier_cols)
+                if bundle["y_raw"] is None:
+                    status.update(label="Training failed", state="error")
+                    st.error("No usable label column remained after preprocessing.")
+                    return
+                st.write(
+                    f"Prepared {len(bundle['X']):,} row(s) x {bundle['X'].shape[1]} "
+                    f"feature(s) ({len(bundle['numeric_cols'])} numeric, "
+                    f"{len(bundle['categorical_cols'])} categorical)."
+                )
+
+                # Stage 3/6: Training Machine Learning Model (stage 4,
+                # Evaluating Model Performance, happens inside the same
+                # train_models() call - see ml/train_model.py, which
+                # fits Random Forest/XGBoost/Isolation Forest THEN
+                # scores the two classifiers on the held-out test
+                # split in one real, measured pass; splitting that
+                # into two separate UI stages here would mean either a
+                # second pass over the data or a fake intermediate
+                # label, neither of which reflects real work).
+                status.update(label="Training machine learning model...")
+                with timed("auto_train_and_detect: train_models"):
+                    result = train_models(
+                        bundle["X"], bundle["y_raw"], bundle["numeric_cols"], bundle["categorical_cols"],
+                        progress_callback=_report_progress,
+                    )
+                status.update(label="Evaluating model performance...")
+                st.write(
+                    f"Best model: {result['best_model']} - F1 = "
+                    f"{result['metrics'][result['best_model']]['f1']}% on its own held-out test split."
+                )
+                st.write(f"Saving to models/{dataset_name!r}'s own slot and activating it...")
+                slug = save_models(result, dataset_name)
+            except ValueError as e:
                 status.update(label="Training failed", state="error")
-                st.error("No usable label column remained after preprocessing.")
+                st.error(str(e))
                 return
-            result = train_models(
-                bundle["X"], bundle["y_raw"], bundle["numeric_cols"], bundle["categorical_cols"],
-                progress_callback=_report_progress,
-            )
-            st.write(f"Saving to models/{dataset_name!r}'s own slot and activating it...")
-            slug = save_models(result, dataset_name)
-        except ValueError as e:
-            status.update(label="Training failed", state="error")
-            st.error(str(e))
-            return
-        except Exception as e:
-            status.update(label="Training failed", state="error")
-            st.error(f"Training failed: {e}")
-            return
+            except Exception as e:
+                status.update(label="Training failed", state="error")
+                st.error(f"Training failed: {e}")
+                return
 
-        status.update(label="Training complete - running detection...")
-        loaded = _load_models_for_slug(slug)
-        if loaded is None:
-            status.update(label="Training succeeded but the new model could not be reloaded", state="error")
-            st.error("Training succeeded, but the newly saved model could not be reloaded for detection.")
-            return
+            # Stage 5/6: Running Threat Detection. Reuses bundle["X"]
+            # (this exact dataset's own already-sanitized, already
+            # column-selected feature matrix) and the preprocessor
+            # train_models() just fit, via run_detection_on_prepared()
+            # (ml/prediction.py) - skips re-sanitizing/re-selecting
+            # columns over the same rows a second time, which is what
+            # the generic run_detection() path would otherwise do.
+            status.update(label="Running threat detection...")
+            loaded = _load_models_for_slug(slug)
+            if loaded is None:
+                status.update(label="Training succeeded but the new model could not be reloaded", state="error")
+                st.error("Training succeeded, but the newly saved model could not be reloaded for detection.")
+                return
 
-        _run_detection(df, loaded)
-        status.update(label="Training and detection complete", state="complete")
+            # Stage 6/6: Generating Detection Results (scoring, risk/
+            # severity, DB persistence, alerts - all inside _run_detection()).
+            with timed("auto_train_and_detect: run_detection"):
+                _run_detection(df, loaded, prepared=(bundle["X"], result["preprocessor"]))
+            status.update(label="Training and detection complete", state="complete")
 
     st.success(
         f"Trained a new model on **{dataset_name}** (best model: "
@@ -1127,13 +1191,24 @@ def _render_compatibility_summary(compat: dict, meta: dict):
             st.caption("Exact schema match.")
 
 
-def _run_detection(df: pd.DataFrame, loaded):
+def _run_detection(df: pd.DataFrame, loaded, prepared: tuple | None = None):
+    """`prepared`, if given, is (X_prepared, preprocessor) from a
+    dataset that was JUST preprocessed for training this exact
+    `loaded` model (see _train_and_detect_for_incompatible_schema) -
+    runs the fast run_detection_on_prepared() path instead of
+    re-sanitizing `df` from scratch via the generic run_detection()."""
     models, label_encoder, artifacts, meta = loaded
     label_col = detect_label_column(df)
     feature_df = df.drop(columns=[label_col]) if label_col else df.copy()
 
     try:
-        results_df = run_detection(feature_df, models, label_encoder, artifacts, meta["best_model"])
+        if prepared is not None:
+            X_prepared, preprocessor = prepared
+            results_df = run_detection_on_prepared(
+                X_prepared, preprocessor, models, label_encoder, meta["best_model"],
+            )
+        else:
+            results_df = run_detection(feature_df, models, label_encoder, artifacts, meta["best_model"])
     except ValueError as e:
         st.error(str(e))
         return

@@ -50,6 +50,7 @@ from xgboost import XGBClassifier
 
 from ml.evaluation import evaluate_classifier
 from ml.preprocessing import build_preprocessing_pipeline
+from utils.perf import timed
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 _ACTIVE_POINTER_FILE = os.path.join(MODELS_DIR, "active_model.json")
@@ -215,30 +216,34 @@ def train_models(feature_df, y_raw, numeric_cols, categorical_cols,
     # same random_state, just parallelized fitting. Needed to keep
     # training on large datasets (e.g. CICIDS2017's 2M+ rows) tractable.
     _report(f"Training Random Forest on {len(X_train):,} rows...")
-    rf = RandomForestClassifier(n_estimators=200, random_state=random_state, n_jobs=-1)
-    rf.fit(X_train, y_train)
+    with timed(f"train_models: fit random_forest ({len(X_train):,} rows)"):
+        rf = RandomForestClassifier(n_estimators=200, random_state=random_state, n_jobs=-1)
+        rf.fit(X_train, y_train)
 
     _report(f"Training XGBoost on {len(X_train):,} rows...")
-    xgb = XGBClassifier(eval_metric="mlogloss", random_state=random_state, n_jobs=-1)
-    xgb.fit(X_train, y_train)
+    with timed(f"train_models: fit xgboost ({len(X_train):,} rows)"):
+        xgb = XGBClassifier(eval_metric="mlogloss", random_state=random_state, n_jobs=-1)
+        xgb.fit(X_train, y_train)
 
     # contamination approximated from the observed proportion of
     # non-benign training labels (clipped to a sane range) - not an
     # arbitrary guess, but also not treated as ground truth since
     # Isolation Forest itself never sees the labels.
     _report("Training Isolation Forest...")
-    non_benign_ratio = sum(
-        1 for v in y_raw.astype(str).str.lower() if v not in BENIGN_TOKENS
-    ) / len(y_raw)
-    contamination = min(max(non_benign_ratio, 0.01), 0.5)
-    iso = IsolationForest(contamination=contamination, random_state=random_state, n_jobs=-1)
-    iso.fit(X_train)
+    with timed(f"train_models: fit isolation_forest ({len(X_train):,} rows)"):
+        non_benign_ratio = sum(
+            1 for v in y_raw.astype(str).str.lower() if v not in BENIGN_TOKENS
+        ) / len(y_raw)
+        contamination = min(max(non_benign_ratio, 0.01), 0.5)
+        iso = IsolationForest(contamination=contamination, random_state=random_state, n_jobs=-1)
+        iso.fit(X_train)
 
     _report("Evaluating models on the held-out test split...")
-    metrics = {
-        "random_forest": evaluate_classifier(rf, X_test, y_test, label_encoder),
-        "xgboost": evaluate_classifier(xgb, X_test, y_test, label_encoder),
-    }
+    with timed(f"train_models: evaluate on test split ({len(X_test):,} rows)"):
+        metrics = {
+            "random_forest": evaluate_classifier(rf, X_test, y_test, label_encoder),
+            "xgboost": evaluate_classifier(xgb, X_test, y_test, label_encoder),
+        }
     best_model = max(metrics, key=lambda name: metrics[name]["f1"])
 
     return {

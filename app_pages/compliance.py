@@ -132,6 +132,24 @@ _FINDING_ICONS = {
 }
 
 
+def _render_selected_finding_detail(r: dict):
+    """Shown immediately under the findings table the instant a row is
+    selected there (see _render_detail_table's on_select) - the same
+    finding/evidence/recommended action fields as the matching
+    "Check-by-check findings" card further down, surfaced right where
+    the click happened so there's no scrolling or hunting needed."""
+    style = STATUS_STYLE.get(r["status"], STATUS_STYLE["NOT_ASSESSED"])
+    label = _STATUS_LABELS.get(r["status"], r["status"])
+    icon = _FINDING_ICONS.get(r["status"], ":material/help:")
+    with st.container(key="compliance_selected_finding", border=True):
+        st.markdown(f"{icon} **{r['framework']} - {r['title']}** ({label})")
+        st.markdown(style["badge"])
+        st.markdown(f"**Finding:** {r.get('reason') or 'No finding recorded.'}")
+        st.markdown(f"**Supporting evidence:** {r.get('evidence') or 'No evidence recorded.'}")
+        st.markdown(f"**Recommended action:** {r.get('recommended_action') or 'None recorded.'}")
+        st.caption(f":material/schedule: Checked at {r['checked_at']}")
+
+
 def _render_detail_table(user_id: int, start, end):
     filter_cols = st.columns([1.1, 1.9])
     with filter_cols[0]:
@@ -180,7 +198,7 @@ def _render_detail_table(user_id: int, start, end):
         }
         for r in rows
     ])
-    st.dataframe(
+    table_event = st.dataframe(
         table_df.style.map(_status_cell_style, subset=["Status"]),
         width="stretch", hide_index=True,
         column_config={
@@ -195,7 +213,29 @@ def _render_detail_table(user_id: int, start, end):
             # scrollbar lets the user drag left/right to read the rest.
             "Recommendation": st.column_config.TextColumn(width=500),
         },
+        # Clicking anywhere on a row (the Status cell included) selects
+        # it - the selected row's full finding is then shown immediately
+        # below, in view, instead of making the analyst scroll down and
+        # hunt for the matching card among every "Check-by-check finding"
+        # below (several can share the same Framework/Check/Status text,
+        # e.g. many "PDPA - Personal data exposure risk" rows).
+        on_select="rerun", selection_mode="single-row", key="compliance_findings_table",
     )
+    selected_rows = table_event.selection.rows if table_event.selection else []
+    if selected_rows:
+        _render_selected_finding_detail(rows[selected_rows[0]])
+
+    # Also auto-open the matching card below, but only on the exact
+    # rerun where the table selection just changed - every expander
+    # already has its own persisted open/closed state once rendered
+    # once (Streamlit widgets only honour `expanded=` as an INITIAL
+    # value, not on every rerun), so without this one-time check, a
+    # later unrelated rerun (e.g. typing in the search box) would keep
+    # re-forcing this row open and every other one closed, fighting
+    # any expander the analyst had opened by hand.
+    prev_selected = st.session_state.get("_compliance_prev_selected_rows")
+    selection_just_changed = selected_rows != prev_selected
+    st.session_state["_compliance_prev_selected_rows"] = selected_rows
 
     st.markdown("###### Check-by-check findings")
     st.caption(
@@ -208,9 +248,12 @@ def _render_detail_table(user_id: int, start, end):
         label = _STATUS_LABELS.get(r["status"], r["status"])
         icon = _FINDING_ICONS.get(r["status"], ":material/help:")
         status_slug = r["status"].lower()
+        exp_key = f"compliance_exp_{status_slug}_{i}"
+        if selection_just_changed and selected_rows:
+            st.session_state[exp_key] = (i == selected_rows[0])
         with st.expander(
             f"{r['framework']} - {r['title']} ({label})",
-            icon=icon, key=f"compliance_exp_{status_slug}_{i}",
+            icon=icon, key=exp_key,
         ):
             st.markdown(style["badge"])
             st.markdown(f"**Finding:** {r.get('reason') or 'No finding recorded.'}")

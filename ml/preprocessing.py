@@ -192,7 +192,16 @@ def sanitize_dataframe(df: pd.DataFrame, numeric_cols: list[str]) -> tuple[pd.Da
         if coerced.notna().sum() == 0 and len(coerced) > 0:
             report["all_missing_columns"].append(c)
 
-        working[c] = coerced
+        # Downcast to the smallest float dtype that holds every value
+        # without loss (almost always float32, halving memory versus
+        # the float64 pd.to_numeric() produced above) - safe because
+        # every value has already been bounded to SAFE_FLOAT_MAX
+        # (float32's own max) just above, and network-flow features
+        # (byte/packet counts, durations, ratios) never need float64
+        # precision. XGBoost and the ColumnTransformer below already
+        # cast to float32 internally, so this removes a redundant
+        # float64 copy rather than changing what the models see.
+        working[c] = pd.to_numeric(coerced, downcast="float")
 
     return working, report
 

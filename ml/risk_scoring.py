@@ -15,6 +15,7 @@ logic be explainable to a reviewer:
   signal from a different method, so a fixed +15 bonus is added,
   capped at 100.
 """
+import numpy as np
 
 ANOMALY_BONUS = 15
 
@@ -44,3 +45,31 @@ def severity_from_risk(risk_score: int) -> str:
     if risk_score >= 30:
         return "MEDIUM"
     return "LOW"
+
+
+def calculate_risk_scores_batch(predictions, confidences, anomaly_flags) -> np.ndarray:
+    """Vectorized form of calculate_risk_score() for a whole detection
+    run (ml/prediction.py) - the exact same formula applied to entire
+    NumPy arrays at once instead of once per row in a Python loop,
+    which is what made detection slow on large uploads. `predictions`
+    is an array of "BENIGN"/"MALICIOUS" strings, `confidences` 0-100,
+    `anomaly_flags` booleans - all the same length, in row order."""
+    confidences = np.asarray(confidences, dtype=float)
+    anomaly_flags = np.asarray(anomaly_flags, dtype=bool)
+    is_malicious = np.asarray(predictions) == "MALICIOUS"
+
+    risk = np.where(is_malicious, confidences, (100 - confidences) * 0.4)
+    risk = risk + np.where(anomaly_flags, ANOMALY_BONUS, 0)
+    risk = np.clip(risk, 0, 100)
+    return np.round(risk).astype(int)
+
+
+def severities_from_risk_batch(risk_scores) -> np.ndarray:
+    """Vectorized form of severity_from_risk() - same fixed
+    thresholds, applied to a whole NumPy array at once."""
+    risk_scores = np.asarray(risk_scores)
+    return np.select(
+        [risk_scores >= 80, risk_scores >= 60, risk_scores >= 30],
+        ["CRITICAL", "HIGH", "MEDIUM"],
+        default="LOW",
+    )
