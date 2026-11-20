@@ -1352,8 +1352,9 @@ def inject_global_theme():
             border-radius: 12px;
             background: rgba(255, 255, 255, 0.55);
             border: 1px solid rgba(139, 92, 246, 0.22);
-            color: #475569;
+            color: #6D28D9;
             font-style: italic;
+            font-weight: 700;
             font-size: 0.85rem;
             text-align: center;
         }}
