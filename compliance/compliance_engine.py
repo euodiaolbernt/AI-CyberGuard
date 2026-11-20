@@ -28,6 +28,8 @@ only reports predefined prototype rule results, and it never
 automatically emits POTENTIAL_VIOLATION (see the framework modules'
 own docstrings) - that judgement is left to a human reviewer.
 """
+import pandas as pd
+
 from compliance import eu_ai_act_rules, gdpr_rules, iso27001_rules, nist_rules, pdpa_rules
 from database.models import create_alert, save_compliance_results
 
@@ -66,6 +68,34 @@ DATA_EXPOSURE_ATTACK_TYPES = {
 }
 
 
+def _clean_optional_text(value):
+    """None if `value` represents "no value" under any of pandas' or
+    Python's missing-value conventions, else `value` as a plain string
+    with its original casing/whitespace untouched.
+
+    ROOT CAUSE this guards against: a BENIGN or binary-model detection
+    has no attack type, so ml/prediction.py puts a real `None` there -
+    but once that column passes through a pandas DataFrame (results_df
+    here, built in ml/prediction.py and round-tripped through
+    database.models.insert_threat_detections_bulk/results_df.to_dict()
+    for this module), pandas' own default "string" dtype (pandas 3.x)
+    represents a missing text value with its own internal marker,
+    which commonly re-surfaces as a FLOAT `nan` - not `None` - once
+    read back via .to_dict()/.iterrows()/standard indexing. `nan` is
+    truthy in Python, so `detection.get("attack_type") or ""` silently
+    keeps the float instead of falling back to "", and the very next
+    `.strip()` call crashed the whole app with an AttributeError
+    (confirmed by reproducing it locally with a binary-class dataset,
+    where every row's attack_type is "missing" this way).
+    pandas.isna() is the robust, version-proof way to recognise EVERY
+    one of pandas'/numpy's "missing" representations (None, float NaN,
+    pandas.NA, NaT) in one check, rather than hand-rolling a truthy
+    check that only covers the cases seen so far."""
+    if pd.isna(value):
+        return None
+    return str(value)
+
+
 def build_network_event(detection: dict, user_id: int) -> dict:
     """Build a compliance event from one threat_detections-shaped
     record (as produced by ml/prediction.py and inserted via
@@ -73,7 +103,8 @@ def build_network_event(detection: dict, user_id: int) -> dict:
     owner of this detection - it flows through to every
     compliance_results/alerts row this event produces, so a second
     user can never see it."""
-    attack_type = (detection.get("attack_type") or "").strip().lower()
+    raw_attack_type = _clean_optional_text(detection.get("attack_type"))
+    attack_type = (raw_attack_type or "").strip().lower()
     severity = detection.get("severity")
     flagged = attack_type in DATA_EXPOSURE_ATTACK_TYPES or severity == "CRITICAL"
 
@@ -81,7 +112,10 @@ def build_network_event(detection: dict, user_id: int) -> dict:
         "user_id": user_id,
         "event_type": "NETWORK_THREAT",
         "label": f"network threat detection ({attack_type or 'unknown attack type'})",
-        "threat_type": detection.get("attack_type"),
+        # Original casing preserved for display/alerts (e.g. "DDoS",
+        # not "ddos") - `attack_type` above is the lowercased form used
+        # only for the DATA_EXPOSURE_ATTACK_TYPES membership check.
+        "threat_type": raw_attack_type,
         "severity": severity,
         "risk_score": detection.get("risk_score"),
         "confidence": detection.get("confidence"),
@@ -107,7 +141,7 @@ def build_url_event(scan: dict, user_id: int) -> dict:
         "user_id": user_id,
         "event_type": "URL_SCAN",
         "label": f"URL scan ({scan.get('scan_status')})",
-        "threat_type": scan.get("threat_category") or "Malicious URL",
+        "threat_type": _clean_optional_text(scan.get("threat_category")) or "Malicious URL",
         "severity": scan.get("risk_level"),
         "risk_score": scan.get("risk_score"),
         "confidence": None,

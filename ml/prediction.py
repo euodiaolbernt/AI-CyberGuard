@@ -52,13 +52,23 @@ def _classify_prepared_matrix(X: pd.DataFrame, models: dict, label_encoder,
     # vs one malicious class) can name a specific attack type -
     # otherwise there is nothing more specific to show. `&`/`~`
     # (elementwise), not `and`/`not`, since is_benign is a NumPy array.
+    #
+    # np.where(), not pandas' Series.where(): when EVERY row gets
+    # replaced (e.g. a binary model, where show_attack_type is all
+    # False), pandas' string-dtype Series silently represents the
+    # "replaced" rows as float('nan') instead of real None once you
+    # call .to_numpy() - and nan is truthy in Python, so downstream
+    # code's `detection.get("attack_type") or ""` style checks
+    # (compliance/compliance_engine.py) would see a float, not None/
+    # "", and crash calling .strip() on it. np.where() with an object
+    # array keeps a real None for every row that should show nothing.
     show_attack_type = multi_class & ~is_benign
-    attack_type = pd.Series(pred_labels, index=X.index).where(show_attack_type, other=None)
+    attack_type = np.where(show_attack_type, pred_labels, None).astype(object)
 
     return pd.DataFrame({
         "record_index": X.index.astype(int),
         "prediction": predictions,
-        "attack_type": attack_type.to_numpy(),
+        "attack_type": attack_type,
         "confidence": confidence_rounded,
         "is_anomaly": anomaly_flags,
         "risk_score": risk_scores,
