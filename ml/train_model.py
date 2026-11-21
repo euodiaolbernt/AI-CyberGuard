@@ -49,7 +49,7 @@ from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 from ml.evaluation import evaluate_classifier
-from ml.preprocessing import build_preprocessing_pipeline
+from ml.preprocessing import build_preprocessing_pipeline, check_schema_compatibility
 from utils.perf import timed
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
@@ -139,6 +139,45 @@ def list_model_slots() -> list[dict]:
             meta = json.load(f)
         slots.append({"slug": entry, **meta})
     return slots
+
+
+def find_model_slot_matches(available_columns, preferred_slug: str | None = None) -> dict:
+    """Independent per-dataset model routing: checks `available_columns`
+    against EVERY trained slot's own raw_feature_names - never assumes
+    whichever slot happens to be active is relevant to a new upload.
+    Returns:
+      {"compatible": <best-fit slot dict, or None>,
+       "closest": <slot dict with the highest match RATIO, for
+                   diagnostics only - NEVER loaded or used to run
+                   detection; a non-compatible model is never used to
+                   force a prediction>}
+    Both (when present) carry an extra "_compat" key: that slot's own
+    check_schema_compatibility() result against `available_columns`.
+
+    Tie-break when multiple slots are fully compatible: keep
+    `preferred_slug` (pass the CURRENT active slug) if it's among
+    them, so a dataset that still fits the model already active/picked
+    doesn't get silently swapped out from under the analyst on every
+    rerun; otherwise falls back to the most recently trained
+    compatible slot."""
+    slots = list_model_slots()
+    if not slots:
+        return {"compatible": None, "closest": None}
+
+    scored = [
+        {**s, "_compat": check_schema_compatibility(available_columns, s["raw_feature_names"])}
+        for s in slots
+    ]
+    compatible = [s for s in scored if s["_compat"]["compatible"]]
+    best_compatible = None
+    if compatible:
+        preferred = next((s for s in compatible if s["slug"] == preferred_slug), None)
+        best_compatible = preferred or max(compatible, key=lambda s: s.get("trained_at", ""))
+
+    closest = max(
+        scored, key=lambda s: s["_compat"]["match_count"] / max(s["_compat"]["expected_count"], 1)
+    )
+    return {"compatible": best_compatible, "closest": closest}
 
 
 def get_active_slug() -> str | None:
@@ -268,6 +307,8 @@ def train_models(feature_df, y_raw, numeric_cols, categorical_cols,
         "best_model": best_model,
         "train_rows": len(X_train),
         "test_rows": len(X_test),
+        "test_size": test_size,
+        "random_state": random_state,
     }
 
 
@@ -285,6 +326,19 @@ def save_models(train_result: dict, dataset_name: str, make_active: bool = True)
     slot_dir = _slot_dir(slug)
     os.makedirs(slot_dir, exist_ok=True)
 
+    # Version increments across retrains of the SAME slug (same
+    # dataset name) - read before this call's own meta overwrites it,
+    # so model_meta.json keeps a count of how many times this exact
+    # dataset has been (re)trained, not just its latest timestamp.
+    version = 1
+    existing_meta_path = os.path.join(slot_dir, _META_FILE)
+    if os.path.isfile(existing_meta_path):
+        try:
+            with open(existing_meta_path, encoding="utf-8") as f:
+                version = int(json.load(f).get("version", 0)) + 1
+        except Exception:
+            version = 1
+
     for name, filename in _MODEL_FILES.items():
         joblib.dump(train_result["models"][name], os.path.join(slot_dir, filename))
     joblib.dump(train_result["label_encoder"], os.path.join(slot_dir, _LABEL_ENCODER_FILE))
@@ -299,7 +353,9 @@ def save_models(train_result: dict, dataset_name: str, make_active: bool = True)
     )
 
     meta = {
+        "model_id": slug,
         "dataset_name": dataset_name,
+        "version": version,
         "trained_at": datetime.now().isoformat(timespec="seconds"),
         "raw_feature_names": train_result["raw_feature_names"],
         "numeric_cols": train_result["numeric_cols"],
@@ -309,6 +365,10 @@ def save_models(train_result: dict, dataset_name: str, make_active: bool = True)
         "metrics": train_result["metrics"],
         "train_rows": train_result.get("train_rows"),
         "test_rows": train_result.get("test_rows"),
+        "training_config": {
+            "test_size": train_result.get("test_size"),
+            "random_state": train_result.get("random_state"),
+        },
     }
     with open(os.path.join(slot_dir, _META_FILE), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)

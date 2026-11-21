@@ -36,7 +36,7 @@ import streamlit as st
 
 import config
 from auth.rate_limit import check_and_bump_cooldown
-from compliance.compliance_engine import build_network_event, process_security_event
+from compliance.compliance_engine import build_network_event, process_security_events_bulk
 from database.models import (
     delete_network_traffic,
     get_threat_detections_in_range,
@@ -52,7 +52,6 @@ from ml.dataset_loader import (
 from ml.file_loader import FORMAT_BADGES, DatasetLoadError, load_uploaded_dataset
 from ml.prediction import run_detection, run_detection_on_prepared
 from ml.preprocessing import (
-    check_schema_compatibility,
     derive_binary_label,
     detect_identifier_columns,
     detect_label_column,
@@ -61,6 +60,7 @@ from ml.preprocessing import (
     validate_dataset,
 )
 from ml.train_model import (
+    find_model_slot_matches,
     get_active_slug,
     get_slot_trained_at,
     list_model_slots,
@@ -70,7 +70,7 @@ from ml.train_model import (
     train_models,
 )
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-from utils.audit_logger import log_action
+from utils.audit_logger import log_action, log_actions_bulk
 from utils.design_tokens import SEVERITY_COLORS
 from utils.illustrations import place as _illustration
 from utils.illustrations import (
@@ -162,6 +162,7 @@ def render_threat_detection_page():
 
         df = st.session_state.get("td_df")
         if df is not None:
+            _sync_model_match_for_dataset(df)
             _render_active_dataset_bar()
             label_col = _render_label_column_picker(df)
             _render_dataset_info(df, label_col)
@@ -297,12 +298,38 @@ def _set_active_dataset(df: pd.DataFrame, dataset_name: str):
     is confusing and makes genuinely-compatible datasets look far more
     mismatched than they are."""
     if dataset_name != st.session_state.get("td_dataset_name"):
-        for key in ("td_validation", "td_bundle", "td_detection_results", "td_detection_ground_truth_eval"):
+        for key in ("td_validation", "td_bundle", "td_detection_results",
+                    "td_detection_ground_truth_eval", "td_auto_attempted_for",
+                    "td_auto_train_error"):
             st.session_state.pop(key, None)
 
     df.columns = [str(c).strip() for c in df.columns]
     st.session_state["td_df"] = df
     st.session_state["td_dataset_name"] = dataset_name
+
+
+def _sync_model_match_for_dataset(df: pd.DataFrame):
+    """Independent per-dataset model routing - runs BEFORE Model
+    Evaluation/Automatic Threat Detection below, every render, so both
+    sections agree on which model applies to THIS dataset within the
+    SAME render (no page reordering, no one-rerun lag: the active
+    pointer is already correct by the time Model Evaluation reads it
+    further down). Checks this dataset's columns against EVERY trained
+    model slot (find_model_slot_matches()), never just whichever slot
+    happened to be active from a previous, unrelated dataset - and
+    only switches the active pointer when the currently active slug
+    isn't itself still a fit for this dataset (see that function's
+    `preferred_slug` tie-break). Never trains anything here - that
+    only ever happens from _render_incompatible_schema_fallback when
+    nothing existing matches."""
+    label_col = detect_label_column(df)
+    available_cols = [c for c in df.columns if c != label_col]
+    matches = find_model_slot_matches(available_cols, preferred_slug=get_active_slug())
+    st.session_state["td_model_match"] = matches
+
+    compatible = matches["compatible"]
+    if compatible is not None and compatible["slug"] != get_active_slug():
+        set_active_slug(compatible["slug"])
 
 
 def _render_upload_section():
@@ -887,7 +914,9 @@ def _render_model_slot_picker():
     slugs = [s["slug"] for s in slots]
     current_index = slugs.index(active) if active in slugs else 0
     chosen_index = st.selectbox(
-        "Active model (for evaluation + Run AI Detection below)",
+        "Active model (for the evaluation metrics below - Automatic Threat "
+        "Detection independently matches its own model per dataset, see that "
+        "section further down)",
         range(len(slots)), index=current_index, format_func=lambda i: labels[i],
         key="td_model_slot_picker",
     )
@@ -1011,35 +1040,63 @@ def _render_detection_section(df):
             _illustration("server_shield", width="140px", height="85px", opacity=0.9),
             unsafe_allow_html=True,
         )
-        loaded = _load_models_for_slug(None)
-        if loaded is None:
-            st.info(
-                "Model has not been trained yet. Upload a labeled dataset above, "
-                "then Preprocess Data and Train Models before running detection."
-            )
-            return
 
         if df is None:
             st.info(
                 "Upload a CSV, or load the CICIDS2017 dataset, above to run "
-                "detection with the currently trained model."
+                "detection with a matching trained model."
             )
             return
 
-        _, _, artifacts, meta = loaded
+        # Independent per-dataset model routing - computed once per
+        # render by _sync_model_match_for_dataset() (called earlier in
+        # render_threat_detection_page(), before Model Evaluation),
+        # never a direct compatibility check against "the active
+        # model": this dataset was already checked against EVERY
+        # trained slot, and this is whichever one actually fit (or
+        # None, if nothing did).
+        matches = st.session_state.get("td_model_match") or {"compatible": None, "closest": None}
+        compatible = matches["compatible"]
         label_col = detect_label_column(df)
-        available_cols = [c for c in df.columns if c != label_col]
-        compat = check_schema_compatibility(available_cols, artifacts["raw_feature_names"])
-        _render_compatibility_summary(compat, meta)
 
-        if not compat["compatible"]:
-            _render_incompatible_schema_fallback(df, label_col, meta)
+        if compatible is None:
+            _render_incompatible_schema_fallback(df, label_col, matches["closest"])
+            results = st.session_state.get("td_detection_results")
+            if results is not None:
+                _render_detection_results(results)
             return
 
-        st.success("Compatible with Existing Model - ready for prediction.")
+        loaded = _load_models_for_slug(compatible["slug"])
+        if loaded is None:
+            st.info("Model has not been trained yet.")
+            return
+
+        _, _, artifacts, meta = loaded
+        _render_compatibility_summary(compatible["_compat"], meta)
+
+        # Runs automatically, exactly ONCE per distinct uploaded dataset
+        # (td_auto_attempted_for is reset by _set_active_dataset() the
+        # moment a NEW dataset replaces this one) - "Automatic Threat
+        # Detection" no longer needs a manual click on the happy path.
+        # "Re-run Detection" below stays available for a deliberate
+        # manual re-run, gated by the same cooldown a repeated click
+        # should go through.
+        dataset_name = st.session_state.get("td_dataset_name")
+        if st.session_state.get("td_auto_attempted_for") != dataset_name:
+            st.session_state["td_auto_attempted_for"] = dataset_name
+            st.success("Found a matching existing model - running detection automatically...")
+            with st.spinner(f"Running AI detection on {len(df):,} record(s)..."):
+                _run_detection(df, loaded)
+        else:
+            st.success("Using the existing model matched to this dataset.")
+
+        results = st.session_state.get("td_detection_results")
+        if results is not None:
+            _render_detection_results(results)
+
         if st.button(
-            "Run AI Detection", type="primary", icon=":material/radar:", width="stretch",
-            disabled=st.session_state.get("td_detect_running", False),
+            "Re-run Detection", icon=":material/refresh:", width="stretch",
+            disabled=st.session_state.get("td_detect_running", False), key="td_rerun_detect_btn",
         ) and _check_ml_cooldown():
             st.session_state["td_detect_running"] = True
             try:
@@ -1048,29 +1105,42 @@ def _render_detection_section(df):
             finally:
                 st.session_state["td_detect_running"] = False
 
-        results = st.session_state.get("td_detection_results")
-        if results is not None:
-            _render_detection_results(results)
 
+def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, closest_match: dict | None):
+    """What happens when NO existing trained model's schema fits this
+    dataset (every slot was checked independently - see
+    find_model_slot_matches()) - a real, working alternative instead
+    of a dead end. `closest_match`, if given, is the single slot with
+    the highest column-overlap RATIO against this dataset, purely for
+    explaining why nothing auto-matched - it is NEVER loaded or used
+    to run detection; a non-compatible model is never used to force a
+    prediction.
 
-def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict):
-    """What happens when the uploaded dataset's schema doesn't match the
-    active model (see check_schema_compatibility() above) - a real,
-    working alternative instead of a dead end. If this dataset has a
-    usable label column (>= 2 classes), offers to train a NEW model on
-    its own schema - reusing the EXACT same preprocess_dataset()/
-    train_models()/save_models() pipeline the manual "Train Models"
-    button above already uses (Workflow B) - and run detection with it
-    immediately, behind ONE explicit click (never silent/automatic).
+    If this dataset has a usable label column (>= 2 classes),
+    AUTOMATICALLY trains a NEW model on its own schema - reusing the
+    EXACT same preprocess_dataset()/train_models()/save_models()
+    pipeline the manual "Train Models" button above already uses
+    (Workflow B) - and runs detection with it immediately, with no
+    click required (every upload should always result in a trained
+    model and a detection run, not a dead end requiring a click the
+    analyst has to know to make). Runs exactly ONCE per distinct
+    uploaded dataset (td_auto_attempted_for, reset by
+    _set_active_dataset() the moment a different dataset is loaded) -
+    never silently retrains again on an unrelated rerun of this page.
     Without a usable label column, explains why automatic training
-    isn't possible rather than attempting it and failing. Deliberately
-    no st.error() here for the mismatch itself - training a fresh
-    per-dataset model (see models/<slug>/ in ml/train_model.py) is the
-    normal, expected path for a new dataset, not a failure state;
-    the compatibility summary expander above already shows exactly
-    which columns matched, and the info box below explains what
-    happens next, so a red "Incompatible Feature Schema" banner on
-    every single new upload was alarming without being useful."""
+    isn't possible rather than attempting it and failing - a hard ML
+    constraint (no labels, no supervised model), not a UX choice."""
+    if closest_match is not None:
+        missing = closest_match["_compat"]["missing"]
+        shown = ", ".join(missing[:12]) + ("..." if len(missing) > 12 else "")
+        st.caption(
+            ":material/info: No existing trained model's schema fully matches "
+            f"this dataset's columns. The closest existing model (trained on "
+            f"**{closest_match['dataset_name']}**) is still missing: {shown}"
+        )
+    else:
+        st.caption(":material/info: No trained model exists yet for any dataset.")
+
     if label_col is None:
         st.warning(
             "This dataset has no detected target/label column, so a new "
@@ -1090,17 +1160,39 @@ def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict
         )
         return
 
-    st.info(
-        f"This dataset has a usable label column (**{label_col}**, {n_classes} "
-        "classes). A new model can be trained on its own schema and used for "
-        "detection right away - the currently active model is left untouched "
-        "unless this succeeds."
+    dataset_name = st.session_state.get("td_dataset_name")
+    already_attempted = st.session_state.get("td_auto_attempted_for") == dataset_name
+
+    if not already_attempted:
+        st.info(
+            f"This dataset has a usable label column (**{label_col}**, {n_classes} "
+            "classes) but no existing trained model's schema fits it - "
+            "training a new model on its own schema automatically and running "
+            "detection with it right away. Every other dataset's own trained "
+            "model is left untouched unless this succeeds."
+        )
+        st.session_state["td_auto_attempted_for"] = dataset_name
+        _train_and_detect_for_incompatible_schema(df, label_col)
+        return
+
+    if st.session_state.get("td_detection_results") is not None:
+        return  # already succeeded - its own st.success() already ran once
+
+    # The actual failure reason was only ever shown during the ORIGINAL
+    # run that hit it - a plain st.error() inside a function call is not
+    # preserved across the rerun that got us here, so without this the
+    # reader has no way to tell why it failed. _train_and_detect_for_
+    # incompatible_schema() persists the real reason to this key right
+    # before every one of its own early returns.
+    reason = st.session_state.get("td_auto_train_error")
+    st.warning(
+        f"Automatic training on **{dataset_name}** didn't complete successfully"
+        + (f": {reason}" if reason else " (no error detail was recorded - this "
+           "itself is unexpected; please retry and report this if it keeps happening).")
     )
     if st.button(
-        "Train New Model on This Dataset & Run Detection",
-        type="primary", icon=":material/model_training:", width="stretch",
-        key="td_auto_train_detect",
-        disabled=st.session_state.get("td_auto_train_running", False),
+        "Retry Training & Detection", icon=":material/model_training:", width="stretch",
+        key="td_retry_auto_train", disabled=st.session_state.get("td_auto_train_running", False),
     ) and _check_ml_cooldown():
         st.session_state["td_auto_train_running"] = True
         try:
@@ -1111,6 +1203,13 @@ def _render_incompatible_schema_fallback(df: pd.DataFrame, label_col, meta: dict
 
 def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
     dataset_name = st.session_state.get("td_dataset_name", "uploaded.csv")
+    # Cleared on every attempt, then re-set at whichever return point
+    # this run actually hits (or left cleared, on success) - a plain
+    # st.error()/st.warning() call here is only ever visible during
+    # THIS run; without persisting the real reason, a later rerun (the
+    # "didn't complete successfully" fallback above) has no way to show
+    # WHY it failed, which is exactly what made that message useless.
+    st.session_state.pop("td_auto_train_error", None)
 
     with timed("auto_train_and_detect: total"):
         # Stage 1/6: Validating Dataset - the same rule-based checks the
@@ -1124,6 +1223,7 @@ def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
         if not is_valid:
             for m in messages:
                 st.error(m)
+            st.session_state["td_auto_train_error"] = " / ".join(messages)
             return
 
         identifier_cols = detect_identifier_columns(df, label_col)
@@ -1144,6 +1244,9 @@ def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
                 if bundle["y_raw"] is None:
                     status.update(label="Training failed", state="error")
                     st.error("No usable label column remained after preprocessing.")
+                    st.session_state["td_auto_train_error"] = (
+                        "No usable label column remained after preprocessing."
+                    )
                     return
                 st.write(
                     f"Prepared {len(bundle['X']):,} row(s) x {bundle['X'].shape[1]} "
@@ -1176,10 +1279,12 @@ def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
             except ValueError as e:
                 status.update(label="Training failed", state="error")
                 st.error(str(e))
+                st.session_state["td_auto_train_error"] = str(e)
                 return
             except Exception as e:
                 status.update(label="Training failed", state="error")
                 st.error(f"Training failed: {e}")
+                st.session_state["td_auto_train_error"] = f"Training failed: {e}"
                 return
 
             # Stage 5/6: Running Threat Detection. Reuses bundle["X"]
@@ -1194,12 +1299,25 @@ def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
             if loaded is None:
                 status.update(label="Training succeeded but the new model could not be reloaded", state="error")
                 st.error("Training succeeded, but the newly saved model could not be reloaded for detection.")
+                st.session_state["td_auto_train_error"] = (
+                    "Training succeeded, but the newly saved model could not be "
+                    "reloaded for detection."
+                )
                 return
 
             # Stage 6/6: Generating Detection Results (scoring, risk/
             # severity, DB persistence, alerts - all inside _run_detection()).
             with timed("auto_train_and_detect: run_detection"):
                 _run_detection(df, loaded, prepared=(bundle["X"], result["preprocessor"]))
+            if st.session_state.get("td_detection_results") is None:
+                # _run_detection() already showed its own specific
+                # st.error() above (it never raises) - that message
+                # doesn't survive the rerun either, so record that
+                # training succeeded but detection itself didn't.
+                st.session_state["td_auto_train_error"] = (
+                    "The new model trained successfully, but running detection "
+                    "with it failed (see the error shown when it ran)."
+                )
             status.update(label="Training and detection complete", state="complete")
 
     st.success(
@@ -1216,18 +1334,29 @@ def _train_and_detect_for_incompatible_schema(df: pd.DataFrame, label_col):
 
 
 def _render_compatibility_summary(compat: dict, meta: dict):
+    """Only ever called once an independently-matched compatible model
+    has already been found (see find_model_slot_matches() /
+    _render_detection_section()) - this dataset was checked against
+    EVERY trained model, not defaulted to whichever one happened to
+    be active, and `meta["dataset_name"]` is the one that actually
+    fit. compat["missing"] is therefore always empty here by
+    construction (that's the definition of "compatible")."""
+    uploaded_name = st.session_state.get("td_dataset_name", "your upload")
     with st.expander(
-        f"Dataset compatibility with active model ({meta['dataset_name']})",
-        expanded=not compat["compatible"], icon=":material/compare_arrows:",
+        f"Schema check: {uploaded_name} vs. matched model (trained on {meta['dataset_name']})",
+        expanded=False, icon=":material/compare_arrows:",
     ):
+        st.caption(
+            f"**{uploaded_name}** was checked independently against every "
+            f"existing trained model - the one trained on "
+            f"**{meta['dataset_name']}** is the one whose schema actually fits "
+            "(not a default/fallback comparison)."
+        )
         st.write(f"Matched features: {compat['match_count']} / {compat['expected_count']} expected")
-        if compat["missing"]:
-            st.warning("Missing (required by the model, not in this dataset): "
-                       + ", ".join(compat["missing"]))
         if compat["extra"]:
-            st.caption("Additional (present in this dataset, unused by the model): "
+            st.caption("Additional columns in this dataset, not used by the model: "
                        + ", ".join(compat["extra"]))
-        if not compat["missing"] and not compat["extra"]:
+        else:
             st.caption("Exact schema match.")
 
 
@@ -1359,31 +1488,47 @@ def _run_compliance_for_significant_detections(results_df: pd.DataFrame, detecti
     (see insert_threat_detections_bulk's docstring) - fetched with a
     follow-up SELECT rather than guessed from an offset, which is
     required for correctness on TiDB (auto-increment ids aren't
-    guaranteed contiguous within one bulk insert there)."""
-    significant = results_df[results_df["severity"].isin(COMPLIANCE_SEVERITY_THRESHOLD)]
-    alerts_created = 0
+    guaranteed contiguous within one bulk insert there).
 
+    Uses process_security_events_bulk() / log_actions_bulk() - a
+    constant handful of DB round trips for the WHOLE batch, rather
+    than up to 3 PER significant row (compliance insert, alert
+    insert+update, audit log insert) - which, against a remote
+    database, is what made a detection run with thousands of
+    HIGH/CRITICAL rows feel like it had hung. Every rule/threshold
+    decision is identical to before; only how many round trips it
+    takes to save the results has changed."""
+    events = []
     for offset, row in enumerate(results_df.to_dict("records")):
         if row["severity"] not in COMPLIANCE_SEVERITY_THRESHOLD:
             continue
         detection = dict(row)
         detection["id"] = detection_ids[offset]
-        event = build_network_event(detection, user_id)
-        outcome = process_security_event(event)
+        events.append(build_network_event(detection, user_id))
+
+    if not events:
+        return 0
+
+    outcomes = process_security_events_bulk(events)
+
+    username = st.session_state.get("username", "?")
+    log_entries = []
+    alerts_created = 0
+    for event, outcome in zip(events, outcomes):
         if outcome["alert_id"] is not None:
             alerts_created += 1
-            log_action(
-                st.session_state.get("username", "?"), "ALERT_CREATED", "ALERTS",
-                f"Alert created for detection id={detection['id']} "
+            log_entries.append((
+                username, "ALERT_CREATED", "ALERTS",
+                f"Alert created for detection id={event['related_detection_id']} "
                 f"({event['threat_type']}, {event['severity']}, risk={event['risk_score']}).",
-            )
+            ))
 
-    if len(significant) > 0:
-        log_action(
-            st.session_state.get("username", "?"), "COMPLIANCE_CHECK", "COMPLIANCE",
-            f"Evaluated compliance rules for {len(significant)} HIGH/CRITICAL "
-            f"detection(s); {alerts_created} alert(s) created.",
-        )
+    log_entries.append((
+        username, "COMPLIANCE_CHECK", "COMPLIANCE",
+        f"Evaluated compliance rules for {len(events)} HIGH/CRITICAL "
+        f"detection(s); {alerts_created} alert(s) created.",
+    ))
+    log_actions_bulk(log_entries)
     return alerts_created
 
 

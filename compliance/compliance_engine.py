@@ -31,7 +31,7 @@ own docstrings) - that judgement is left to a human reviewer.
 import pandas as pd
 
 from compliance import eu_ai_act_rules, gdpr_rules, iso27001_rules, nist_rules, pdpa_rules
-from database.models import create_alert, save_compliance_results
+from database.models import create_alert, create_alerts_bulk, save_compliance_results
 
 # Event-driven frameworks (evaluated per detection/scan). EU AI Act is
 # evaluated separately via run_ai_system_self_assessment() below - it
@@ -190,6 +190,42 @@ def process_security_event(event: dict) -> dict:
     return {"compliance_results": results, "alert_id": alert_id}
 
 
+def process_security_events_bulk(events: list[dict]) -> list[dict]:
+    """Batched sibling of process_security_event() for a whole batch of
+    events at once (e.g. every HIGH/CRITICAL detection in one Threat
+    Detection run) - ONE save_compliance_results() call and ONE
+    create_alerts_bulk() call for the ENTIRE batch, instead of up to 2
+    DB round trips PER event. This is purely about how many round
+    trips happen: every event still runs through the exact same
+    evaluate_event() rules and the exact same ALERT_RISK_THRESHOLD
+    check as calling process_security_event() on each one individually
+    - process_security_event() itself is unchanged for every existing
+    single-event call site (URL Scanner).
+
+    Returns one {"compliance_results": [...], "alert_id": int | None}
+    per input event, same shape and order as process_security_event()."""
+    if not events:
+        return []
+
+    per_event_results = [evaluate_event(event) for event in events]
+
+    all_results = [r for results in per_event_results for r in results]
+    if all_results:
+        save_compliance_results(all_results, events[0]["user_id"])
+
+    alert_indices = [
+        i for i, event in enumerate(events)
+        if (event.get("risk_score") or 0) >= ALERT_RISK_THRESHOLD
+    ]
+    alert_rows = [_alert_row_for_event(events[i], per_event_results[i]) for i in alert_indices]
+    alert_ids = create_alerts_bulk(alert_rows) if alert_rows else []
+
+    outcomes = [{"compliance_results": per_event_results[i], "alert_id": None} for i in range(len(events))]
+    for i, alert_id in zip(alert_indices, alert_ids):
+        outcomes[i]["alert_id"] = alert_id
+    return outcomes
+
+
 def run_ai_system_self_assessment(user_id: int) -> list[dict]:
     """EU AI Act: assessed once for the system itself, not per event -
     but still owned by whichever user clicked the button, so it only
@@ -205,23 +241,32 @@ def run_ai_system_self_assessment(user_id: int) -> list[dict]:
     return results
 
 
-def _create_alert_for_event(event: dict, compliance_results: list[dict]) -> int:
+def _alert_row_for_event(event: dict, compliance_results: list[dict]) -> dict:
+    """The exact alert fields for one event + its compliance results -
+    shared by _create_alert_for_event() (single-event path) and
+    process_security_events_bulk() (batched path), so both produce
+    identical alert content regardless of how many DB round trips it
+    takes to save them."""
     compliance_summary = "; ".join(
         f"{r['rule_code']}: {r['status']}" for r in compliance_results
     ) or "No applicable compliance rules flagged for this event."
 
-    return create_alert(
-        user_id=event["user_id"],
-        event_type="Network Threat" if event["event_type"] == "NETWORK_THREAT" else "Malicious URL",
-        threat_type=event.get("threat_type"),
-        severity=event.get("severity") or "CRITICAL",
-        risk_score=event.get("risk_score") or 0,
-        confidence=event.get("confidence"),
-        related_detection_id=event.get("related_detection_id"),
-        related_url_scan_id=event.get("related_url_scan_id"),
-        compliance_summary=compliance_summary,
-        recommended_action=_recommended_action_for(event),
-    )
+    return {
+        "user_id": event["user_id"],
+        "event_type": "Network Threat" if event["event_type"] == "NETWORK_THREAT" else "Malicious URL",
+        "threat_type": event.get("threat_type"),
+        "severity": event.get("severity") or "CRITICAL",
+        "risk_score": event.get("risk_score") or 0,
+        "confidence": event.get("confidence"),
+        "related_detection_id": event.get("related_detection_id"),
+        "related_url_scan_id": event.get("related_url_scan_id"),
+        "compliance_summary": compliance_summary,
+        "recommended_action": _recommended_action_for(event),
+    }
+
+
+def _create_alert_for_event(event: dict, compliance_results: list[dict]) -> int:
+    return create_alert(**_alert_row_for_event(event, compliance_results))
 
 
 def _recommended_action_for(event: dict) -> str:

@@ -123,24 +123,38 @@ def render_placeholder(page_name: str):
 
 
 def _render_page(page_name: str):
-    if page_name == "Dashboard":
-        render_dashboard_page()
-    elif page_name == "Threat Detection":
-        render_threat_detection_page()
-    elif page_name == "URL Scanner":
-        render_url_scanner_page()
-    elif page_name == "Compliance Monitoring":
-        render_compliance_page()
-    elif page_name == "Alerts & Incidents":
-        render_alerts_page()
-    elif page_name == "Reports":
-        render_reports_page()
-    elif page_name == "Audit Logs":
-        render_audit_logs_page()
-    elif page_name == "Settings":
-        render_settings_page()
-    else:
-        render_placeholder(page_name)
+    # Keyed by the page itself (not just a static wrapper) - there is no
+    # st.navigation/st.Page here (see module docstring), so switching pages
+    # is just this same script calling a DIFFERENT render_*_page() function
+    # on the next rerun. Streamlit's frontend reconciles elements by
+    # (tree position, type, key); without a key that actually changes with
+    # the page, a DOM node from the PREVIOUS page's subtree can get reused
+    # in place for the new page's content before layout has caught up -
+    # seen as one page's cards briefly fused with another's. A full
+    # reload (F5) never shows this because it builds the tree from
+    # scratch with no previous page to reconcile against, which matches
+    # "every time I navigate here, but a refresh fixes it". Giving every
+    # page its own key forces a clean unmount+remount on every switch.
+    slug = page_name.lower().replace(" ", "_").replace("&", "and")
+    with st.container(key=f"page_root_{slug}"):
+        if page_name == "Dashboard":
+            render_dashboard_page()
+        elif page_name == "Threat Detection":
+            render_threat_detection_page()
+        elif page_name == "URL Scanner":
+            render_url_scanner_page()
+        elif page_name == "Compliance Monitoring":
+            render_compliance_page()
+        elif page_name == "Alerts & Incidents":
+            render_alerts_page()
+        elif page_name == "Reports":
+            render_reports_page()
+        elif page_name == "Audit Logs":
+            render_audit_logs_page()
+        elif page_name == "Settings":
+            render_settings_page()
+        else:
+            render_placeholder(page_name)
 
 
 def render_app():

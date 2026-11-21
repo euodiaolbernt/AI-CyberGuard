@@ -1705,6 +1705,27 @@ def _build_theme_css() -> str:
             padding: 22px;
         }}
 
+        /* Invisible per-page root wrapper (app.py's _render_page(), key=
+           f"page_root_{{slug}}") - exists only so Streamlit's frontend
+           treats each page as a genuinely different component subtree on
+           navigation, so a DOM node from the PREVIOUSLY viewed page can't
+           get reused in place for the new page's content before layout
+           catches up (seen as one page's cards briefly fused with
+           another's, every time you navigate here, gone on a hard
+           refresh since that always builds the tree from scratch).
+           It must never paint a box of its own - every page already owns
+           its own top-level card(s) (td_page_wrapper, etc.) - so this
+           undoes the bare stLayoutWrapper card rule just above for it,
+           same substring-match technique as td_stat_blue/cyan/teal. */
+        [data-testid="stMain"] [class*="st-key-page_root_"],
+        [data-testid="stMain"] [class*="st-key-page_root_"] [data-testid="stLayoutWrapper"],
+        [data-testid="stMain"] [class*="st-key-page_root_"][class*="st-key-page_root_"] {{
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+        }}
+
         [data-testid="stMain"] [data-testid="stMetric"] {{
             background: rgba(255, 255, 255, 0.75);
             border: 1px solid rgba(15, 23, 42, 0.06);

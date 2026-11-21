@@ -978,6 +978,79 @@ def create_alert(user_id: int, event_type: str, threat_type, severity: str, risk
         conn.close()
 
 
+def create_alerts_bulk(alerts: list[dict]) -> list[int]:
+    """Bulk sibling of create_alert() - for a whole batch of alerts
+    (e.g. every HIGH/CRITICAL detection in one Threat Detection run),
+    this is a small constant number of round trips total instead of 2
+    PER alert (insert-then-update, each its own connection checkout),
+    which is what made a large detection run with thousands of
+    significant rows slow against a remote database. create_alert()
+    itself is unchanged - URL Scanner's single-event call site keeps
+    using it exactly as before.
+
+    Each dict needs the same keys as create_alert()'s parameters
+    (user_id, event_type, threat_type, severity, risk_score,
+    confidence, related_detection_id, related_url_scan_id,
+    compliance_summary, recommended_action). Returns the new alert ids
+    in the same order as `alerts`."""
+    if not alerts:
+        return []
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        placeholder_refs = [f"PENDING-{uuid.uuid4().hex[:12]}" for _ in alerts]
+        rows = [
+            (a["user_id"], placeholder_refs[i], a["event_type"], a["threat_type"], a["severity"],
+             a["risk_score"], a["confidence"], a["related_detection_id"], a["related_url_scan_id"],
+             a["compliance_summary"], a["recommended_action"])
+            for i, a in enumerate(alerts)
+        ]
+        cursor.executemany(
+            "INSERT INTO alerts (user_id, threat_ref, event_type, threat_type, severity, "
+            "risk_score, confidence, related_detection_id, related_url_scan_id, "
+            "compliance_summary, recommended_action) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            rows,
+        )
+        conn.commit()
+
+        # executemany()'s own lastrowid only ever gives the FIRST row's
+        # id - map placeholder_ref -> real id via one SELECT instead of
+        # assuming the ids are contiguous.
+        fmt = ", ".join(["%s"] * len(placeholder_refs))
+        cursor.execute(f"SELECT id, threat_ref FROM alerts WHERE threat_ref IN ({fmt})", placeholder_refs)
+        id_by_ref = {ref: row_id for row_id, ref in cursor.fetchall()}
+        ordered_ids = [id_by_ref[ref] for ref in placeholder_refs]
+
+        # A single CASE-based UPDATE instead of executemany() here -
+        # mysql-connector-python only rewrites an INSERT's executemany()
+        # into one multi-row statement; for UPDATE it silently falls
+        # back to one execute() per row, which would put the N we just
+        # removed from the insert/alert-creation step right back in on
+        # this one. Every id in `ordered_ids` is covered by its own WHEN
+        # branch and the WHERE clause only ever matches those same ids,
+        # so no row can fall through without a match (no ELSE needed).
+        case_clauses = " ".join("WHEN %s THEN %s" for _ in ordered_ids)
+        case_params = []
+        for alert_id in ordered_ids:
+            case_params.extend([alert_id, f"THR-{alert_id:04d}"])
+        id_fmt = ", ".join(["%s"] * len(ordered_ids))
+        cursor.execute(
+            f"UPDATE alerts SET threat_ref = CASE id {case_clauses} END WHERE id IN ({id_fmt})",
+            case_params + ordered_ids,
+        )
+        conn.commit()
+
+        get_alert_count.clear()
+        get_new_alert_count.clear()
+        get_alerts.clear()
+        get_alert_status_counts.clear()
+        get_alert_severity_counts.clear()
+        return ordered_ids
+    finally:
+        conn.close()
+
+
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def get_alerts(user_id: int, status=None, severities=None, event_type=None, limit: int = 100,
                 start_date=None, end_date=None):
