@@ -13,11 +13,12 @@ SESSION STATE (the 3 keys the feature spec names):
   cyber_time_end_date    - date | None (meaningful only when period == "custom")
 
 MALAYSIA LOCAL TIME: every "today"/"this month"/etc. boundary below is
-computed from Asia/Kuala_Lumpur wall-clock time, independent of the
-host machine's own system timezone - consistent with this project's
-existing deployment assumption that the MySQL server's own clock is
-also set to Malaysia time (every DATETIME column here is naive,
-written via NOW()/CURRENT_TIMESTAMP - see database/schema.sql).
+computed from Asia/Kuala_Lumpur wall-clock time via utils/timezone.py's
+now_myt(), independent of the host machine's own system timezone -
+consistent with every write to this project's naive DATETIME columns
+(database/models.py, utils/audit_logger.py), which now also stamps
+them via now_myt() rather than relying on the database server's own
+NOW()/CURRENT_TIMESTAMP (see utils/timezone.py's own docstring for why).
 
 INCLUSIVE END, NOT A DATABASE REWRITE: database/models.py's existing
 start_date/end_date query parameters are already proven, parameterized,
@@ -34,13 +35,11 @@ reruns detection by itself - it only changes what get_active_range()
 returns to whichever page's own code calls it next.
 """
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
 
 import streamlit as st
 
 from utils.illustrations import photo_path
-
-MALAYSIA_TZ = ZoneInfo("Asia/Kuala_Lumpur")
+from utils.timezone import now_myt
 
 PERIOD_LABELS = {
     "today": "Today",
@@ -78,15 +77,8 @@ SUPPORTED_PAGES = {
 }
 
 
-def _now_myt() -> datetime:
-    """Naive 'now' in Malaysia time - see this module's own docstring
-    for why naive (matches the naive DATETIME columns already written
-    via MySQL's own NOW())."""
-    return datetime.now(MALAYSIA_TZ).replace(tzinfo=None)
-
-
 def _today_myt() -> date:
-    return _now_myt().date()
+    return now_myt().date()
 
 
 def _day_bounds(d: date) -> tuple[datetime, datetime]:

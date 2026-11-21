@@ -8,6 +8,7 @@ through this single log_action() function, so there is exactly one
 code path that produces the trail shown later on the Audit Logs page.
 """
 from database.connection import get_connection
+from utils.timezone import now_myt
 
 
 def log_action(user: str, action: str, event_type: str, description: str = ""):
@@ -23,9 +24,9 @@ def log_action(user: str, action: str, event_type: str, description: str = ""):
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO audit_logs (username, action, event_type, description) "
-                "VALUES (%s, %s, %s, %s)",
-                (user, action, event_type, description),
+                "INSERT INTO audit_logs (username, action, event_type, description, timestamp) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (user, action, event_type, description, now_myt()),
             )
             conn.commit()
         finally:
@@ -48,9 +49,11 @@ def log_actions_bulk(entries: list[tuple[str, str, str, str]]):
         conn = get_connection()
         try:
             cursor = conn.cursor()
+            timestamp = now_myt()
+            entries = [(*entry, timestamp) for entry in entries]
             cursor.executemany(
-                "INSERT INTO audit_logs (username, action, event_type, description) "
-                "VALUES (%s, %s, %s, %s)",
+                "INSERT INTO audit_logs (username, action, event_type, description, timestamp) "
+                "VALUES (%s, %s, %s, %s, %s)",
                 entries,
             )
             conn.commit()

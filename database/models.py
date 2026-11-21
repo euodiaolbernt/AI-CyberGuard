@@ -28,6 +28,7 @@ import uuid
 import streamlit as st
 
 from database.connection import get_connection
+from utils.timezone import now_myt
 
 # Every read-only aggregate/list query below is wrapped in
 # st.cache_data(ttl=CACHE_TTL_SECONDS). Streamlit reruns this ENTIRE
@@ -136,9 +137,9 @@ def create_user(username: str, password_hash, role: str, full_name: str = "",
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (username, email, password_hash, role, full_name, auth_provider) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (username, email, password_hash, role, full_name, auth_provider),
+            "INSERT INTO users (username, email, password_hash, role, full_name, auth_provider, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (username, email, password_hash, role, full_name, auth_provider, now_myt()),
         )
         conn.commit()
         return cursor.lastrowid
@@ -150,7 +151,7 @@ def update_last_login(user_id: int):
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("UPDATE users SET last_login = NOW() WHERE id = %s", (user_id,))
+        cursor.execute("UPDATE users SET last_login = %s WHERE id = %s", (now_myt(), user_id))
         conn.commit()
     finally:
         conn.close()
@@ -242,9 +243,9 @@ def insert_network_traffic(dataset_name: str, uploaded_by, row_count: int,
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO network_traffic (dataset_name, uploaded_by, row_count, column_count, status) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (dataset_name, uploaded_by, row_count, column_count, status),
+            "INSERT INTO network_traffic (dataset_name, uploaded_by, row_count, column_count, status, uploaded_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (dataset_name, uploaded_by, row_count, column_count, status, now_myt()),
         )
         conn.commit()
         get_traffic_summary.clear()
@@ -493,6 +494,12 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        # One shared timestamp for the whole batch (same detection run),
+        # explicit Malaysia time - not the table's own DEFAULT
+        # CURRENT_TIMESTAMP, which is the shared TiDB Cloud cluster's
+        # clock (UTC), not the user's own local time (see
+        # utils/timezone.py).
+        detected_at = now_myt()
         rows = [
             (
                 user_id,
@@ -504,14 +511,15 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
                 r["risk_score"],
                 r["severity"],
                 r["model_used"],
+                detected_at,
             )
             for r in results_df.to_dict("records")
         ]
 
         insert_sql = (
             "INSERT INTO threat_detections "
-            "(user_id, traffic_id, record_index, prediction, attack_type, confidence, risk_score, severity, model_used) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "(user_id, traffic_id, record_index, prediction, attack_type, confidence, risk_score, severity, model_used, detected_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         )
         for start in range(0, len(rows), THREAT_DETECTION_INSERT_BATCH_SIZE):
             chunk = rows[start:start + THREAT_DETECTION_INSERT_BATCH_SIZE]
@@ -651,10 +659,10 @@ def insert_url_scan_result(url: str, scanned_by, scan_status: str, threat_catego
         cursor.execute(
             "INSERT INTO url_scan_results "
             "(url, scanned_by, scan_status, threat_category, detection_count, "
-            "total_engines, risk_score, risk_level, source, analysis_reference) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "total_engines, risk_score, risk_level, source, analysis_reference, scan_timestamp) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (url, scanned_by, scan_status, threat_category, detection_count,
-             total_engines, risk_score, risk_level, source, analysis_reference),
+             total_engines, risk_score, risk_level, source, analysis_reference, now_myt()),
         )
         conn.commit()
         get_url_scan_summary.clear()
@@ -830,6 +838,7 @@ def save_compliance_results(results: list, user_id: int):
     try:
         rule_lookup = get_compliance_rule_lookup()
 
+        checked_at = now_myt()
         rows = []
         for r in results:
             rule = rule_lookup.get(r["rule_code"])
@@ -837,7 +846,7 @@ def save_compliance_results(results: list, user_id: int):
                 continue  # rule not seeded yet - skip rather than crash
             rows.append((
                 user_id, rule["id"], r.get("related_detection_id"), r.get("related_url_scan_id"),
-                r["status"], r.get("reason"), r.get("evidence"), rule["recommended_action"],
+                r["status"], r.get("reason"), r.get("evidence"), rule["recommended_action"], checked_at,
             ))
         if not rows:
             return
@@ -845,8 +854,8 @@ def save_compliance_results(results: list, user_id: int):
         cursor = conn.cursor()
         cursor.executemany(
             "INSERT INTO compliance_results "
-            "(user_id, rule_id, related_detection_id, related_url_scan_id, status, reason, evidence, recommended_action) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "(user_id, rule_id, related_detection_id, related_url_scan_id, status, reason, evidence, recommended_action, checked_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             rows,
         )
         conn.commit()
@@ -957,10 +966,10 @@ def create_alert(user_id: int, event_type: str, threat_type, severity: str, risk
         cursor.execute(
             "INSERT INTO alerts (user_id, threat_ref, event_type, threat_type, severity, "
             "risk_score, confidence, related_detection_id, related_url_scan_id, "
-            "compliance_summary, recommended_action) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "compliance_summary, recommended_action, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (user_id, placeholder_ref, event_type, threat_type, severity, risk_score, confidence,
-             related_detection_id, related_url_scan_id, compliance_summary, recommended_action),
+             related_detection_id, related_url_scan_id, compliance_summary, recommended_action, now_myt()),
         )
         alert_id = cursor.lastrowid
         cursor.execute(
@@ -999,17 +1008,18 @@ def create_alerts_bulk(alerts: list[dict]) -> list[int]:
     try:
         cursor = conn.cursor()
         placeholder_refs = [f"PENDING-{uuid.uuid4().hex[:12]}" for _ in alerts]
+        created_at = now_myt()
         rows = [
             (a["user_id"], placeholder_refs[i], a["event_type"], a["threat_type"], a["severity"],
              a["risk_score"], a["confidence"], a["related_detection_id"], a["related_url_scan_id"],
-             a["compliance_summary"], a["recommended_action"])
+             a["compliance_summary"], a["recommended_action"], created_at)
             for i, a in enumerate(alerts)
         ]
         cursor.executemany(
             "INSERT INTO alerts (user_id, threat_ref, event_type, threat_type, severity, "
             "risk_score, confidence, related_detection_id, related_url_scan_id, "
-            "compliance_summary, recommended_action) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "compliance_summary, recommended_action, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             rows,
         )
         conn.commit()
@@ -1333,9 +1343,9 @@ def record_report(generated_by, report_type: str, file_format: str):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO reports (generated_by, report_type, file_format, file_path) "
-            "VALUES (%s, %s, %s, NULL)",
-            (generated_by, report_type, file_format),
+            "INSERT INTO reports (generated_by, report_type, file_format, file_path, generated_at) "
+            "VALUES (%s, %s, %s, NULL, %s)",
+            (generated_by, report_type, file_format, now_myt()),
         )
         conn.commit()
         get_report_history.clear()
