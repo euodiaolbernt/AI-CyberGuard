@@ -1160,9 +1160,15 @@ def update_alert_status(alert_id: int, status: str, user_id: int):
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        # updated_at set explicitly (Malaysia time, see utils/timezone.py)
+        # rather than left to the column's own ON UPDATE CURRENT_TIMESTAMP -
+        # that trigger fires on the shared TiDB Cloud cluster's own clock
+        # (UTC), the same mismatch commit 1019fff already fixed for every
+        # INSERT-time timestamp column; this UPDATE was the one write path
+        # still relying on the database server's own clock.
         cursor.execute(
-            "UPDATE alerts SET status = %s WHERE id = %s AND user_id = %s",
-            (status, alert_id, user_id),
+            "UPDATE alerts SET status = %s, updated_at = %s WHERE id = %s AND user_id = %s",
+            (status, now_myt(), alert_id, user_id),
         )
         conn.commit()
         get_alert_count.clear()

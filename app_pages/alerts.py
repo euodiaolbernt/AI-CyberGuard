@@ -4,7 +4,10 @@ Alerts & Incidents page (Step 8).
 Alerts are never created from this page - they're generated
 automatically by compliance/compliance_engine.py whenever a Threat
 Detection or URL Scanner event's risk_score reaches
-ALERT_RISK_THRESHOLD (80, per the FYP report). This page only
+ALERT_RISK_THRESHOLD (80, per the FYP report), or whenever a URL scan
+is outright classified MALICIOUS by VirusTotal/Safe Browsing
+regardless of its numeric risk_score (see
+compliance_engine._should_alert). This page only
 displays them and lets an analyst move one through the incident
 lifecycle: NEW -> INVESTIGATING -> RESOLVED. Nothing here creates,
 blocks, deletes, or auto-modifies anything, and the alert-generation
@@ -91,7 +94,8 @@ def render_alerts_page():
         )
     render_intro_banner(
         "Automatically created when a detected threat or scanned URL reaches "
-        "a risk score of 80 or higher. Recommended actions are advisory only - "
+        "a risk score of 80 or higher, or when a URL scan is confirmed "
+        "malicious outright. Recommended actions are advisory only - "
         "this system does not block, delete, or modify anything automatically.",
         "cloud_shield", width=110, accent="#F97316",  # matches PAGE_META's Alerts & Incidents accent
     )

@@ -36,7 +36,6 @@ from every other page - confusing, and risks a HIGH risk_score being
 misread as a HIGH safety score. Kept consistent instead.
 """
 import html
-from datetime import timezone
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -525,7 +524,11 @@ def _render_scan_details(result: dict):
     app never performs (see this module's own docstring)."""
     with st.expander("Scan details", icon=":material/info:"):
         ts = result["scan_timestamp"]
-        ts_str = ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if ts else "—"
+        # Naive Malaysia local time (utils.timezone.now_myt()), same
+        # convention as every other timestamp in this app (Alerts'
+        # Created column, Detection History, etc.) - not UTC, so no
+        # astimezone() conversion here.
+        ts_str = ts.strftime("%Y-%m-%d %H:%M") if ts else "—"
         original = result.get("original_url")
         if original and original != result["url"]:
             st.write(f"**Original URL (as entered):** {original}")

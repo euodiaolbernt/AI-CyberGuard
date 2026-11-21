@@ -209,13 +209,24 @@ def _format_range(start_date, end_date) -> str:
     return f"{start_str} to {end_str}"
 
 
+def _safe_text(value) -> str:
+    """fpdf2's default Helvetica font only supports latin-1 - a label
+    straight from the source dataset (e.g. CICIDS2017's own
+    mis-encoded "Web Attack <?> Sql Injection") can contain a
+    character outside that range, which otherwise raises
+    FPDFUnicodeEncodingException and crashes the WHOLE report (every
+    PDF generator here calls through _pdf_section/_pdf_table).
+    Replaced rather than dropped, so the row still has a value."""
+    return str(value).encode("latin-1", errors="replace").decode("latin-1")
+
+
 def _pdf_section(pdf: FPDF, title: str, lines: list):
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 8, title)
     pdf.ln(8)
     pdf.set_font("Helvetica", "", 10)
     for line in lines:
-        pdf.cell(0, 6, line)
+        pdf.cell(0, 6, _safe_text(line))
         pdf.ln(6)
     pdf.ln(2)
 
@@ -235,12 +246,12 @@ def _pdf_table(pdf: FPDF, title, headers: list, rows: list):
     col_width = 190 / len(headers)
     pdf.set_font("Helvetica", "B", 9)
     for h in headers:
-        pdf.cell(col_width, 6, str(h), border=1)
+        pdf.cell(col_width, 6, _safe_text(h), border=1)
     pdf.ln()
 
     pdf.set_font("Helvetica", "", 9)
     for row in rows:
         for val in row:
-            pdf.cell(col_width, 6, str(val), border=1)
+            pdf.cell(col_width, 6, _safe_text(val), border=1)
         pdf.ln()
     pdf.ln(4)

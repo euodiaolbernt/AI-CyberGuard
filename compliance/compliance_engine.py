@@ -145,6 +145,7 @@ def build_url_event(scan: dict, user_id: int) -> dict:
         "severity": scan.get("risk_level"),
         "risk_score": scan.get("risk_score"),
         "confidence": None,
+        "scan_status": scan.get("scan_status"),
         "potential_data_exposure": flagged,
         "unauthorized_access": flagged,
         "evidence": (
@@ -172,6 +173,23 @@ def evaluate_event(event: dict) -> list[dict]:
     return results
 
 
+def _should_alert(event: dict) -> bool:
+    """Alert threshold: risk_score >= ALERT_RISK_THRESHOLD (80, per the
+    FYP report), OR a URL scan VirusTotal/Safe Browsing already
+    classified MALICIOUS outright. The second clause matters because
+    risk_score for a URL scan is based on the ABSOLUTE number of
+    engines that flagged it (security/url_scanner.py), not a
+    percentage - a URL only 3 of VirusTotal's ~70-90 engines flagged
+    is still a confirmed MALICIOUS verdict, but only scores 12/100,
+    well under 80. Without this, a confirmed-malicious scan (whose own
+    result page already recommends "create a security incident")
+    silently never became an alert/incident. Network threat events
+    have no "scan_status" key, so this never changes their behavior."""
+    if (event.get("risk_score") or 0) >= ALERT_RISK_THRESHOLD:
+        return True
+    return event.get("event_type") == "URL_SCAN" and event.get("scan_status") == "MALICIOUS"
+
+
 def process_security_event(event: dict) -> dict:
     """Full per-event pipeline: evaluate -> persist -> maybe alert.
     `event["user_id"]` (set by build_network_event/build_url_event)
@@ -184,7 +202,7 @@ def process_security_event(event: dict) -> dict:
     save_compliance_results(results, user_id)
 
     alert_id = None
-    if (event.get("risk_score") or 0) >= ALERT_RISK_THRESHOLD:
+    if _should_alert(event):
         alert_id = _create_alert_for_event(event, results)
 
     return {"compliance_results": results, "alert_id": alert_id}
@@ -197,8 +215,8 @@ def process_security_events_bulk(events: list[dict]) -> list[dict]:
     create_alerts_bulk() call for the ENTIRE batch, instead of up to 2
     DB round trips PER event. This is purely about how many round
     trips happen: every event still runs through the exact same
-    evaluate_event() rules and the exact same ALERT_RISK_THRESHOLD
-    check as calling process_security_event() on each one individually
+    evaluate_event() rules and the exact same _should_alert() check
+    as calling process_security_event() on each one individually
     - process_security_event() itself is unchanged for every existing
     single-event call site (URL Scanner).
 
@@ -213,10 +231,7 @@ def process_security_events_bulk(events: list[dict]) -> list[dict]:
     if all_results:
         save_compliance_results(all_results, events[0]["user_id"])
 
-    alert_indices = [
-        i for i, event in enumerate(events)
-        if (event.get("risk_score") or 0) >= ALERT_RISK_THRESHOLD
-    ]
+    alert_indices = [i for i, event in enumerate(events) if _should_alert(event)]
     alert_rows = [_alert_row_for_event(events[i], per_event_results[i]) for i in alert_indices]
     alert_ids = create_alerts_bulk(alert_rows) if alert_rows else []
 

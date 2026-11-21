@@ -33,14 +33,13 @@ thresholds as network threat detection
 (ml/risk_scoring.severity_from_risk), so both features report risk on
 one consistent scale.
 """
-from datetime import datetime, timezone
-
 import config
 from ml.risk_scoring import severity_from_risk
 from security.phishing_heuristics import analyze_url_structure
 from security.safe_browsing import SafeBrowsingError, check_url as check_safe_browsing
 from security.validation import validate_url
 from security.virustotal import VirusTotalError, get_existing_report, poll_analysis, submit_url
+from utils.timezone import now_myt
 
 MALICIOUS_WEIGHT = 4
 SUSPICIOUS_WEIGHT = 2
@@ -223,7 +222,7 @@ def _build_result(url: str, original_url: str, stats: dict, engine_results: dict
         "is_low_confidence": is_low_confidence,
         "source": ", ".join(sources_consulted),
         "analysis_reference": analysis_reference,
-        "scan_timestamp": datetime.now(timezone.utc),
+        "scan_timestamp": now_myt(),
         "heuristic_score": heuristic["heuristic_score"],
         "heuristic_level": heuristic["heuristic_level"],
         "heuristic_signals": heuristic["signals"],
@@ -289,7 +288,7 @@ def _error_result(url: str, message: str) -> dict:
         "is_low_confidence": False,
         "source": "VirusTotal",
         "analysis_reference": None,
-        "scan_timestamp": datetime.now(timezone.utc),
+        "scan_timestamp": now_myt(),
         "heuristic_score": None,
         "heuristic_level": None,
         "heuristic_signals": [],
