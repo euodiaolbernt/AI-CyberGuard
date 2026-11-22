@@ -2690,6 +2690,21 @@ _DARK_MUTED_TEXT = "#94A3B8"
 _DARK_INPUT_BG = "#1E293B"
 _DARK_INPUT_BORDER = "rgba(255, 255, 255, 0.14)"
 
+# The light theme above has dozens of per-card rules that each paint
+# their OWN light pastel/gradient background - e.g. .st-key-X.st-key-X
+# .st-key-X [data-testid="stLayoutWrapper"] (the KPI/premium-card
+# convention noted earlier in this file: a class repeated up to 3x,
+# purely to win specificity battles). A plain single-attribute dark
+# override (e.g. just [data-testid="stMain"] [data-testid="X"]) LOSES
+# to that - same CSS specificity math, just fewer selector components
+# - which is exactly what left cards like the Settings profile card
+# and "Keep Your Account Secure" banner still light (and their text,
+# separately overridden to near-white below, unreadable on top of it).
+# Repeating the SAME attribute selector here is the identical trick,
+# scaled past the deepest chain found anywhere in this file (3x), so
+# these rules structurally win regardless of which specific card.
+_STMAIN_HI = '[data-testid="stMain"]' * 6
+
 
 def _dark_mode_overrides_css() -> str:
     return f"""
@@ -2700,16 +2715,30 @@ def _dark_mode_overrides_css() -> str:
         [data-testid="stMain"] * {{
             color: {_DARK_TEXT};
         }}
+        {_STMAIN_HI} {{
+            color: {_DARK_TEXT} !important;
+        }}
         [data-testid="stMain"] [data-testid="stCaptionContainer"],
         [data-testid="stMain"] small,
-        [data-testid="stMain"] [data-testid="stMetricLabel"] {{
+        [data-testid="stMain"] [data-testid="stMetricLabel"],
+        {_STMAIN_HI} [data-testid="stCaptionContainer"],
+        {_STMAIN_HI} small,
+        {_STMAIN_HI} [data-testid="stMetricLabel"] {{
             color: {_DARK_MUTED_TEXT} !important;
         }}
-        [data-testid="stMain"] [data-testid="stLayoutWrapper"] {{
+        [data-testid="stMain"] [data-testid="stLayoutWrapper"],
+        {_STMAIN_HI} [data-testid="stLayoutWrapper"] {{
             background: {_DARK_CARD_BG} !important;
+            background-image: none !important;
             border-color: {_DARK_CARD_BORDER} !important;
         }}
-        [data-testid="stMain"] [data-testid="stHeading"] {{
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"],
+        {_STMAIN_HI} [data-testid="stHorizontalBlock"] {{
+            background: transparent !important;
+            background-image: none !important;
+        }}
+        [data-testid="stMain"] [data-testid="stHeading"],
+        {_STMAIN_HI} [data-testid="stHeading"] {{
             color: {_DARK_TEXT} !important;
         }}
         [data-testid="stMain"] [data-testid="stTextInput"] input,

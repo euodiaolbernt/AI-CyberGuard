@@ -13,10 +13,10 @@ database/models.py). Only an ADMIN gets an extra toggle to view every
 user's activity, since that's a real oversight capability, not a page
 restriction - everyone still opens this same page.
 
-The 7 event_type values coloured below (AUTH/THREAT_DETECTION/
-URL_SCANNER/COMPLIANCE/ALERTS/REPORTS/ADMIN) are the exact, only
-values utils.audit_logger.log_action() is ever called with across the
-codebase (grep-verified) - this page never invents a category. The
+The 8 event_type values coloured below (AUTH/THREAT_DETECTION/
+URL_SCANNER/COMPLIANCE/ALERTS/REPORTS/ADMIN/SETTINGS) are the exact,
+only values utils.audit_logger.log_action() is ever called with across
+the codebase (grep-verified) - this page never invents a category. The
 summary cards and Event type filter work on the already-fetched,
 already-scoped rows (same 200-row window the table itself uses), so
 they can never show a number the table disagrees with.
@@ -44,6 +44,7 @@ EVENT_TYPE_COLORS = {
     "ALERTS": ("#D97706", "kpi_highrisk"),
     "REPORTS": ("#22D3EE", "kpi_cyan"),
     "ADMIN": ("#EF4444", "kpi_threats"),
+    "SETTINGS": ("#F2C94C", "kpi_medium"),
 }
 EVENT_TYPE_ICON = {
     "AUTH": ":material/lock_person:",
@@ -53,6 +54,7 @@ EVENT_TYPE_ICON = {
     "ALERTS": ":material/notifications:",
     "REPORTS": ":material/description:",
     "ADMIN": ":material/admin_panel_settings:",
+    "SETTINGS": ":material/tune:",
 }
 _TOTAL_CARD_KEY = "kpi_compliance_neutral"
 
@@ -135,7 +137,18 @@ def _render_event_type_summary(rows: list):
 
     cards = [(_TOTAL_CARD_KEY, ":material/summarize: Total entries", sum(counts.values()))]
     for et in present:
-        _, color_key = EVENT_TYPE_COLORS.get(et, ("#94A3B8", "kpi_compliance_neutral"))
+        # A genuinely unmapped event_type (one log_action() is called
+        # with that isn't registered above - see this file's own
+        # docstring on keeping that list in sync) falls back to a key
+        # DERIVED from its own name, never the shared
+        # "kpi_compliance_neutral" literal _TOTAL_CARD_KEY already uses
+        # above - two st.container(key=...) calls with the same key in
+        # one render raises StreamlitDuplicateElementKey, which is
+        # exactly what happened here once. This fallback key has no
+        # matching CSS in theme.py (renders as a plain, unstyled card),
+        # which is the correct trade-off: a plain card beats a crash.
+        default_key = f"kpi_unmapped_{et.lower()}"
+        _, color_key = EVENT_TYPE_COLORS.get(et, ("#94A3B8", default_key))
         icon = EVENT_TYPE_ICON.get(et, ":material/bolt:")
         cards.append((color_key, f"{icon} {et.replace('_', ' ').title()}", counts[et]))
 
