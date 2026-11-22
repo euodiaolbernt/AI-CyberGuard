@@ -954,8 +954,16 @@ def _render_model_evaluation():
                 + (" &nbsp; :orange[:material/military_tech:] **BEST MODEL**" if is_best else "")
             )
             st.markdown(_metric_grid_html(model_key, m), unsafe_allow_html=True)
-            with st.expander("Confusion Matrix", icon=":material/grid_on:"):
-                _render_confusion_matrix_heatmap(m["confusion_matrix"], m["class_names"], key=f"cm_{model_key}")
+            expander_key = f"td_cm_expander_{model_key}"
+            with st.expander("Confusion Matrix", icon=":material/grid_on:", key=expander_key):
+                # Only builds the Plotly heatmap when actually expanded -
+                # an expander's body still executes even while collapsed
+                # (Streamlit renders it, just hides it), so without this
+                # check both models' heatmaps were recomputed on EVERY
+                # single rerun of this page (every widget click anywhere
+                # on the page), never just when someone opens them.
+                if st.session_state.get(expander_key):
+                    _render_confusion_matrix_heatmap(m["confusion_matrix"], m["class_names"], key=f"cm_{model_key}")
 
 
 def _metric_grid_html(model_key: str, m: dict) -> str:

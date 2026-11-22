@@ -38,6 +38,7 @@ from utils.illustrations import (
     BANNER_ICON_SHIELD_CHECK,
     photo_path,
     render_photo,
+    static_asset_url,
     render_premium_banner,
 )
 from utils.page_ui import render_empty_state
@@ -218,18 +219,40 @@ def _render_my_account():
 
 def _render_profile_card(user: dict):
     color = _role_color(user["role"])
-    has_robot = photo_path("robot_shield") is not None
+    robot_url = static_asset_url("cyber_robot_shield.png")
+    name = user["full_name"] or user["username"]
 
+    # ONE raw HTML flex row instead of a nested st.columns() row inside
+    # this bordered container - a nested st.columns()/st.container() row
+    # here picks up theme.py's own generic bordered/"stLayoutWrapper"
+    # card styling meant for the OUTER container, not this inner row,
+    # producing a second, stray box around the avatar+name+robot row
+    # (confirmed reported: the avatar sitting half outside a second,
+    # inner box). This is the exact same "boxes inside boxes" failure
+    # mode threat_detection.py's _metric_grid_html() docstring already
+    # documents and avoids the same way - raw HTML has no such
+    # layout-engine side effects, since every tag opened here is closed
+    # in the same string.
+    robot_html = (
+        f'<img src="{robot_url}" alt="" style="width:84px; height:auto; flex:0 0 auto;" />'
+        if robot_url else ""
+    )
     with st.container(key="settings_profile_card", border=True):
-        avatar_col, name_col, art_col = st.columns([1, 4, 1] if has_robot else [1, 5, 0.001])
-        with avatar_col:
-            st.markdown(_avatar_html(user["full_name"] or user["username"], color), unsafe_allow_html=True)
-        with name_col:
-            st.markdown(f"##### {user['full_name'] or user['username']}")
-            st.markdown(_role_badge_html(user["role"]), unsafe_allow_html=True)
-        if has_robot:
-            with art_col:
-                render_photo("robot_shield", width=84)
+        st.markdown(
+            '<div style="display:flex; align-items:center; gap:1rem;">'
+            f'{_avatar_html(name, color)}'
+            '<div style="flex:1 1 auto; min-width:0;">'
+            # #0F172A matches utils/theme.py's _SLATE_TEXT token (not
+            # imported directly - that module's constants are private
+            # to its own stylesheet, not meant to be cross-imported).
+            '<p style="margin:0 0 0.35rem; font-size:1.05rem; font-weight:700; '
+            f'color:#0F172A; line-height:1.3;">{name}</p>'
+            f'{_role_badge_html(user["role"])}'
+            '</div>'
+            f'{robot_html}'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         st.caption("Keep your profile updated for a secure and personalised experience.")
 
 

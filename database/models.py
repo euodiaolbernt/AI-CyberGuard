@@ -518,7 +518,12 @@ def get_recent_threats(user_id: int, limit: int = 10, start_date=None, end_date=
 # point (diminishing returns). The server's actual max_allowed_packet
 # is 64MB (confirmed via SHOW VARIABLES) - a 10,000-row chunk of this
 # table is well under 1MB, nowhere near that ceiling.
-THREAT_DETECTION_INSERT_BATCH_SIZE = 10000
+#
+# Shared by every large bulk write this module does against this same
+# connection (threat_detections, compliance_results, alerts) - the
+# round-trip-latency math above is about the CONNECTION, not any one
+# table, so the same chunk size applies everywhere this pattern repeats.
+BULK_INSERT_BATCH_SIZE = 10000
 
 
 def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> list[int]:
@@ -527,7 +532,7 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
     from ml/prediction.py:run_detection() - real model output only,
     never manually-entered or invented results.
 
-    Inserted in chunks of THREAT_DETECTION_INSERT_BATCH_SIZE rows (see
+    Inserted in chunks of BULK_INSERT_BATCH_SIZE rows (see
     its comment for why), all within ONE transaction - if any chunk
     fails, every chunk already sent in this call is rolled back, so a
     failure never leaves a partial batch (some rows saved, the rest
@@ -583,8 +588,8 @@ def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> 
             "(user_id, traffic_id, record_index, prediction, attack_type, confidence, risk_score, severity, model_used, detected_at) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         )
-        for start in range(0, len(rows), THREAT_DETECTION_INSERT_BATCH_SIZE):
-            chunk = rows[start:start + THREAT_DETECTION_INSERT_BATCH_SIZE]
+        for start in range(0, len(rows), BULK_INSERT_BATCH_SIZE):
+            chunk = rows[start:start + BULK_INSERT_BATCH_SIZE]
             cursor.executemany(insert_sql, chunk)
 
         cursor.execute(
@@ -914,12 +919,22 @@ def save_compliance_results(results: list, user_id: int):
             return
 
         cursor = conn.cursor()
-        cursor.executemany(
+        insert_sql = (
             "INSERT INTO compliance_results "
             "(user_id, rule_id, related_detection_id, related_url_scan_id, status, reason, evidence, recommended_action, checked_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            rows,
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
         )
+        # Chunked the same way insert_threat_detections_bulk() is (see
+        # BULK_INSERT_BATCH_SIZE) - a single HIGH/CRITICAL-heavy
+        # detection run (e.g. an attack-traffic capture where most rows
+        # are CRITICAL) can produce ~7 compliance_results rows per
+        # significant detection, so this list can reach into the
+        # hundreds of thousands even when results itself was already
+        # filtered down - an unchunked executemany() here was the same
+        # unbounded-statement-size risk that was already fixed for
+        # threat_detections, just never applied to this table too.
+        for start in range(0, len(rows), BULK_INSERT_BATCH_SIZE):
+            cursor.executemany(insert_sql, rows[start:start + BULK_INSERT_BATCH_SIZE])
         conn.commit()
         get_compliance_overview.clear()
         get_recent_compliance_issues.clear()
@@ -1077,21 +1092,32 @@ def create_alerts_bulk(alerts: list[dict]) -> list[int]:
              a["compliance_summary"], a["recommended_action"], created_at)
             for i, a in enumerate(alerts)
         ]
-        cursor.executemany(
+        insert_sql = (
             "INSERT INTO alerts (user_id, threat_ref, event_type, threat_type, severity, "
             "risk_score, confidence, related_detection_id, related_url_scan_id, "
             "compliance_summary, recommended_action, created_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            rows,
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         )
+        # Chunked like insert_threat_detections_bulk() (see
+        # BULK_INSERT_BATCH_SIZE) - an attack-heavy detection run (most
+        # rows CRITICAL) can mean an alert per detection, so this can
+        # reach into the hundreds of thousands same as compliance_results.
+        for start in range(0, len(rows), BULK_INSERT_BATCH_SIZE):
+            cursor.executemany(insert_sql, rows[start:start + BULK_INSERT_BATCH_SIZE])
         conn.commit()
 
         # executemany()'s own lastrowid only ever gives the FIRST row's
-        # id - map placeholder_ref -> real id via one SELECT instead of
-        # assuming the ids are contiguous.
-        fmt = ", ".join(["%s"] * len(placeholder_refs))
-        cursor.execute(f"SELECT id, threat_ref FROM alerts WHERE threat_ref IN ({fmt})", placeholder_refs)
-        id_by_ref = {ref: row_id for row_id, ref in cursor.fetchall()}
+        # id - map placeholder_ref -> real id via SELECTs instead of
+        # assuming the ids are contiguous. Chunked (not one IN (...) for
+        # every ref at once) for the same reason as the insert above -
+        # MySQL/TiDB also cap how many placeholders one statement can
+        # hold, which an alert batch this large can otherwise exceed.
+        id_by_ref = {}
+        for start in range(0, len(placeholder_refs), BULK_INSERT_BATCH_SIZE):
+            chunk_refs = placeholder_refs[start:start + BULK_INSERT_BATCH_SIZE]
+            fmt = ", ".join(["%s"] * len(chunk_refs))
+            cursor.execute(f"SELECT id, threat_ref FROM alerts WHERE threat_ref IN ({fmt})", chunk_refs)
+            id_by_ref.update({ref: row_id for row_id, ref in cursor.fetchall()})
         ordered_ids = [id_by_ref[ref] for ref in placeholder_refs]
 
         # A single CASE-based UPDATE instead of executemany() here -
@@ -1102,15 +1128,20 @@ def create_alerts_bulk(alerts: list[dict]) -> list[int]:
         # this one. Every id in `ordered_ids` is covered by its own WHEN
         # branch and the WHERE clause only ever matches those same ids,
         # so no row can fall through without a match (no ELSE needed).
-        case_clauses = " ".join("WHEN %s THEN %s" for _ in ordered_ids)
-        case_params = []
-        for alert_id in ordered_ids:
-            case_params.extend([alert_id, f"THR-{alert_id:04d}"])
-        id_fmt = ", ".join(["%s"] * len(ordered_ids))
-        cursor.execute(
-            f"UPDATE alerts SET threat_ref = CASE id {case_clauses} END WHERE id IN ({id_fmt})",
-            case_params + ordered_ids,
-        )
+        # Chunked the same way - one CASE statement per every id in a
+        # huge batch would itself become the oversized-statement problem
+        # this whole function is otherwise careful to avoid.
+        for start in range(0, len(ordered_ids), BULK_INSERT_BATCH_SIZE):
+            id_chunk = ordered_ids[start:start + BULK_INSERT_BATCH_SIZE]
+            case_clauses = " ".join("WHEN %s THEN %s" for _ in id_chunk)
+            case_params = []
+            for alert_id in id_chunk:
+                case_params.extend([alert_id, f"THR-{alert_id:04d}"])
+            id_fmt = ", ".join(["%s"] * len(id_chunk))
+            cursor.execute(
+                f"UPDATE alerts SET threat_ref = CASE id {case_clauses} END WHERE id IN ({id_fmt})",
+                case_params + id_chunk,
+            )
         conn.commit()
 
         get_alert_count.clear()

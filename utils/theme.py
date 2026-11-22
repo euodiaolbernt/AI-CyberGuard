@@ -92,14 +92,16 @@ _HEADER_BACKGROUND_IMAGE_PATH = Path(__file__).resolve().parent.parent / "static
 
 # Main content: light theme, dark slate text, cyan/blue primary accent.
 _SLATE_TEXT = "#0F172A"
-# Darkened from the original #64748B (slate-500) - that read as too
-# pale/low-contrast for captions, metric labels, and empty-state detail
-# text on this app's light-blue/white card backgrounds (reported
-# directly: "the small word tht color grey ... change to color dark
-# grey"). #475569 (slate-600) is the single shared "muted/secondary
-# text" token used across the whole site, so darkening it here fixes
-# every caption/label at once rather than patching each one.
-_SLATE_MUTED = "#475569"
+# Round 2 of the same complaint: first darkened from #64748B (slate-500)
+# to #475569 (slate-600) per "the small word tht color grey ... change
+# to color dark grey" - still reported as hard to read ("i want all the
+# word here are black. not grey"). Rather than guess at yet another
+# shade of grey, this now matches _SLATE_TEXT exactly (same near-black
+# used for primary headings/body text) - there is no more
+# muted/secondary tier, by explicit request. Both are still the single
+# shared tokens used across the whole site, so this fixes every
+# caption/label/subtitle at once rather than patching each one.
+_SLATE_MUTED = _SLATE_TEXT
 _BODY_TEXT = "#334155"
 _INPUT_TEXT = "#1E293B"
 # Section headings (st.subheader()/h3 - "Model Evaluation", "Recent
@@ -107,12 +109,9 @@ _INPUT_TEXT = "#1E293B"
 # h1/h2's _SLATE_TEXT, so the two heading levels read as a hierarchy
 # rather than identical weight/colour at different sizes.
 _SECTION_HEADING = "#172554"
-# st.caption()'s own colour - distinct from _SLATE_MUTED (used for
-# "subtitle"-style secondary text like .dw-subtitle/.td-stage-desc),
-# per an explicit two-tier request: captions/helper text a hair
-# lighter than secondary subtitles, both comfortably dark enough to
-# read.
-_CAPTION_TEXT = "#52647A"
+# st.caption()'s own colour - see _SLATE_MUTED above, same "make it
+# black, not grey" request applies here too.
+_CAPTION_TEXT = _SLATE_TEXT
 # Genuinely secondary states ONLY - disabled fields and placeholder
 # text, which should read a step lighter than real content so the
 # difference between "disabled/empty" and "filled in" stays visible at
