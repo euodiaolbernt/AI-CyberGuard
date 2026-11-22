@@ -2658,7 +2658,122 @@ def _build_theme_css() -> str:
     )
 
 
+# ---------------------------------------------------------------
+# Dark mode + font size (Settings -> Preferences) - layered ON TOP of
+# the light theme above, never replacing it: _build_theme_css() is
+# still injected first every run, then this override block (when the
+# signed-in user's own stored preference is "dark" - see
+# auth/authentication.py's is_authenticated(), which refreshes
+# st.session_state["theme_preference"] from the users table on every
+# page load) repaints the MAIN content area only. The sidebar is left
+# alone on purpose - it's already its own dark navy in both modes (see
+# the module docstring), so there's nothing to override there.
+#
+# Deliberately NOT a from-scratch redesign: this app's ~500 existing
+# selectors above are literal light-theme hex values, not light/dark
+# CSS variables (a prior full dark-navy redesign of the main content
+# was explicitly tried and reverted - see the module docstring), so a
+# true per-component dark palette would mean re-deriving every one of
+# those colours. This instead repaints the handful of structural
+# surfaces every page shares (page background, card backgrounds, text,
+# inputs, tabs, alerts, expanders) with !important, which is good
+# enough for a usable dark mode without that full rewrite. One real,
+# unavoidable rough edge: st.dataframe's own grid is rendered by
+# Streamlit natively via WebGL/canvas, which this CSS cannot reach at
+# all (same limitation noted in the module docstring) - its white
+# background stays as-is in dark mode.
+_DARK_BG = "#0B1220"
+_DARK_CARD_BG = "#161F32"
+_DARK_CARD_BORDER = "rgba(255, 255, 255, 0.08)"
+_DARK_TEXT = "#E2E8F0"
+_DARK_MUTED_TEXT = "#94A3B8"
+_DARK_INPUT_BG = "#1E293B"
+_DARK_INPUT_BORDER = "rgba(255, 255, 255, 0.14)"
+
+
+def _dark_mode_overrides_css() -> str:
+    return f"""
+        <style>
+        [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
+            background: {_DARK_BG} !important;
+        }}
+        [data-testid="stMain"] * {{
+            color: {_DARK_TEXT};
+        }}
+        [data-testid="stMain"] [data-testid="stCaptionContainer"],
+        [data-testid="stMain"] small,
+        [data-testid="stMain"] [data-testid="stMetricLabel"] {{
+            color: {_DARK_MUTED_TEXT} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stLayoutWrapper"] {{
+            background: {_DARK_CARD_BG} !important;
+            border-color: {_DARK_CARD_BORDER} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stHeading"] {{
+            color: {_DARK_TEXT} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stTextInput"] input,
+        [data-testid="stMain"] [data-testid="stNumberInput"] input,
+        [data-testid="stMain"] [data-testid="stTextArea"] textarea,
+        [data-testid="stMain"] [data-testid="stDateInput"] input,
+        [data-testid="stMain"] [data-baseweb="select"] > div,
+        [data-testid="stMain"] [data-testid="stMultiSelect"] [data-baseweb="select"] > div {{
+            background: {_DARK_INPUT_BG} !important;
+            color: {_DARK_TEXT} !important;
+            border-color: {_DARK_INPUT_BORDER} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+            background: transparent !important;
+            border-bottom-color: {_DARK_CARD_BORDER} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stTabs"] button[role="tab"] {{
+            color: {_DARK_MUTED_TEXT} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stTabs"] button[aria-selected="true"] {{
+            color: {_DARK_TEXT} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stExpander"] {{
+            background: {_DARK_CARD_BG} !important;
+            border-color: {_DARK_CARD_BORDER} !important;
+        }}
+        [data-testid="stMain"] [data-testid="stDataFrame"] {{
+            border: 1px solid {_DARK_CARD_BORDER} !important;
+        }}
+        [data-testid="stMain"] hr {{
+            border-color: {_DARK_CARD_BORDER} !important;
+        }}
+        </style>
+        """
+
+
+_FONT_SIZE_PX = {"small": "14px", "medium": "16px", "large": "18px"}
+
+
+def _font_size_css(font_size_preference: str) -> str:
+    """Scales the whole main content area's base font size - most of
+    this app's (and Streamlit's own) text is sized in rem/em off this
+    root value, so one rule cascades through headings, body text,
+    captions, inputs, and buttons together rather than needing every
+    individual font-size rule above restated per size. Sidebar is left
+    at its own fixed size on purpose, same reasoning as dark mode
+    above: it's chrome, not reading content."""
+    px = _FONT_SIZE_PX.get(font_size_preference, _FONT_SIZE_PX["medium"])
+    return f"""
+        <style>
+        [data-testid="stMain"] {{
+            font-size: {px} !important;
+        }}
+        </style>
+        """
+
+
 def inject_global_theme():
     """Must only ever be called from app.py's render_app() (see module
-    docstring) - renders the cached CSS built by _build_theme_css()."""
+    docstring) - renders the cached CSS built by _build_theme_css(),
+    then layers the current user's Settings -> Preferences choices
+    (theme/font size - see st.session_state, refreshed on every page
+    load by auth/authentication.py's is_authenticated()) on top."""
     st.markdown(_build_theme_css(), unsafe_allow_html=True)
+    if st.session_state.get("theme_preference") == "dark":
+        st.markdown(_dark_mode_overrides_css(), unsafe_allow_html=True)
+    st.markdown(_font_size_css(st.session_state.get("font_size_preference", "medium")), unsafe_allow_html=True)

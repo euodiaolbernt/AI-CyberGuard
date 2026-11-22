@@ -114,7 +114,8 @@ def get_user_by_id(user_id: int):
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT id, username, email, role, auth_provider, full_name, is_active, "
-            "last_login, created_at FROM users WHERE id = %s",
+            "last_login, created_at, theme_preference, font_size_preference "
+            "FROM users WHERE id = %s",
             (user_id,),
         )
         return cursor.fetchone()
@@ -167,6 +168,24 @@ def update_user_full_name(user_id: int, full_name: str):
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET full_name = %s WHERE id = %s", (full_name, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_user_preferences(user_id: int, theme_preference: str, font_size_preference: str):
+    """Persist the Settings -> Preferences choices (theme/font size) so
+    they survive logout/login, not just the current browser tab's
+    session_state - see utils/theme.py's inject_global_theme(), which
+    reads the session_state copy app.py's is_authenticated() refreshes
+    from this same column on every page load."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET theme_preference = %s, font_size_preference = %s WHERE id = %s",
+            (theme_preference, font_size_preference, user_id),
+        )
         conn.commit()
     finally:
         conn.close()

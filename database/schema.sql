@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS users (
     full_name       VARCHAR(100) DEFAULT '',
     is_active       TINYINT(1)   NOT NULL DEFAULT 1,
     last_login      DATETIME     NULL,
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    theme_preference      ENUM('light','dark') NOT NULL DEFAULT 'light',
+    font_size_preference  ENUM('small','medium','large') NOT NULL DEFAULT 'medium'
 );
 
 -- ------------------------------------------------------------------

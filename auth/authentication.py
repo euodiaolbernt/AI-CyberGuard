@@ -337,6 +337,8 @@ def is_authenticated() -> bool:
         _expire_session("Your account is no longer active.")
         return False
     st.session_state["role"] = user["role"]
+    st.session_state["theme_preference"] = user.get("theme_preference") or "light"
+    st.session_state["font_size_preference"] = user.get("font_size_preference") or "medium"
 
     st.session_state["last_active_at"] = now
     return True

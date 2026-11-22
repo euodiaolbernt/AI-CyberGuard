@@ -11,16 +11,22 @@ is_admin()), not something every self-registered user should be able
 to do to each other. The page itself is never hidden from anyone;
 only that one capability is gated.
 """
+import json
+
 import streamlit as st
 
 from auth.authentication import is_admin
 from auth.password import hash_password
 from database.models import (
     create_user,
+    get_audit_logs,
+    get_threat_summary,
+    get_url_scan_summary,
     get_user_by_id,
     list_users,
     set_user_active,
     update_user_full_name,
+    update_user_preferences,
     username_exists,
 )
 from utils.audit_logger import log_action
@@ -34,12 +40,12 @@ from utils.illustrations import (
 )
 from utils.page_ui import render_empty_state
 
-# The left-column "account navigation" list. Only "account_details" and
-# "security" open a real section built from this app's actual data -
-# the other four are genuine, not-yet-built features (no backend for
-# notifications/preferences/connected-accounts/privacy exists anywhere
-# in this project), so clicking them shows an honest "not available"
-# notice instead of a fake working panel. (slug, title, description, icon)
+# The left-column "account navigation" list. "account_details",
+# "security", "preferences", "connected", and "privacy" each open a
+# real section built from this app's actual data. "notifications" is
+# the one remaining not-yet-built feature (no backend for it exists
+# anywhere in this project), so it alone still shows an honest "not
+# available" notice instead of a fake working panel. (slug, title, description, icon)
 _ACCOUNT_SECTIONS = [
     ("account_details", "Account Details", "View and update your personal information.", ":material/badge:"),
     ("security", "Security", "Manage your password and security settings.", ":material/lock:"),
@@ -196,6 +202,12 @@ def _render_my_account():
             _render_edit_profile_card(user)
         elif section == "security":
             _render_security_section(user)
+        elif section == "preferences":
+            _render_preferences_section(user)
+        elif section == "connected":
+            _render_connected_accounts_section(user)
+        elif section == "privacy":
+            _render_privacy_section(user)
         else:
             title, desc, icon = _SECTION_META[section]
             _render_placeholder_section(title, desc, icon)
@@ -339,6 +351,128 @@ def _render_security_section(user: dict):
             )
         else:
             st.info("In-app password changes are not available yet.")
+
+
+_THEME_OPTIONS = ["Light", "Dark"]
+_FONT_SIZE_OPTIONS = ["Small", "Medium", "Large"]
+
+
+def _render_preferences_section(user: dict):
+    with st.container(key="settings_edit_profile_card", border=True):
+        st.markdown("##### :material/tune: Preferences")
+        st.caption(
+            "Customise how AI CyberGuard looks for you - applies only to your own "
+            "account, on any device you sign in from."
+        )
+
+        current_theme = "Dark" if (user.get("theme_preference") or "light") == "dark" else "Light"
+        chosen_theme = st.segmented_control(
+            "Theme", _THEME_OPTIONS, default=current_theme, key="settings_pref_theme",
+        )
+
+        current_font = (user.get("font_size_preference") or "medium").capitalize()
+        chosen_font = st.segmented_control(
+            "Font size", _FONT_SIZE_OPTIONS, default=current_font, key="settings_pref_font_size",
+        )
+
+        if st.button("Save Preferences", icon=":material/save:", type="primary"):
+            new_theme = (chosen_theme or current_theme).lower()
+            new_font = (chosen_font or current_font).lower()
+            update_user_preferences(user["id"], new_theme, new_font)
+            st.session_state["theme_preference"] = new_theme
+            st.session_state["font_size_preference"] = new_font
+            log_action(
+                st.session_state.get("username", "?"), "PREFERENCES_UPDATED", "SETTINGS",
+                f"Set theme={new_theme}, font_size={new_font}.",
+            )
+            st.success("Preferences saved.")
+            st.rerun()
+
+
+def _render_connected_accounts_section(user: dict):
+    """Deliberately simple and read-only: shows the real sign-in
+    method already on this account (auth_provider) rather than a fake
+    'Connect' flow for providers this app doesn't actually implement
+    OAuth linking for."""
+    with st.container(key="settings_edit_profile_card", border=True):
+        st.markdown("##### :material/link: Connected Accounts")
+        st.caption("Accounts linked to your AI CyberGuard sign-in.")
+
+        google_connected = user["auth_provider"] == "google"
+        with st.container(border=True):
+            cols = st.columns([0.5, 2.5, 1.2], vertical_alignment="center")
+            cols[0].markdown(":material/account_circle:")
+            with cols[1]:
+                st.write("**Google**")
+                st.caption(user["email"] or "No email on file")
+            with cols[2]:
+                if google_connected:
+                    st.markdown(":green[:material/check_circle:] Connected")
+                else:
+                    st.markdown(":gray[:material/radio_button_unchecked:] Not connected")
+
+        if not google_connected:
+            st.info(
+                "This account signs in with a username and password, not Google. "
+                "Google sign-in can only be linked when an account is first created - "
+                "sign out and use \"Sign in with Google\" on the login page to create one."
+            )
+
+
+def _build_user_data_export(user: dict) -> dict:
+    return {
+        "profile": {
+            "username": user["username"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "role": user["role"],
+            "sign_in_method": user["auth_provider"],
+            "created_at": user["created_at"],
+            "last_login": user["last_login"],
+        },
+        "activity_summary": {
+            "datasets_analysed": get_threat_summary(user["id"])["total"],
+            "url_scans_performed": get_url_scan_summary(user["id"])["total"],
+        },
+        "audit_log": get_audit_logs(user["username"], limit=1000),
+    }
+
+
+def _render_privacy_section(user: dict):
+    with st.container(key="settings_edit_profile_card", border=True):
+        st.markdown("##### :material/shield_lock: Data & Privacy")
+        st.caption(
+            "AI CyberGuard only stores data tied to your own account - every query in "
+            "this app is scoped by your user id, so no other user can see it, and you "
+            "can't see theirs."
+        )
+
+        threat_summary = get_threat_summary(user["id"])
+        url_summary = get_url_scan_summary(user["id"])
+        cols = st.columns(3)
+        with cols[0], st.container(border=True):
+            st.metric("Datasets analysed", f"{threat_summary['total']:,}")
+        with cols[1], st.container(border=True):
+            st.metric("URL scans performed", f"{url_summary['total']:,}")
+        with cols[2], st.container(border=True):
+            st.metric("Account created", str(user["created_at"].date()) if user["created_at"] else "-")
+
+        st.markdown("**What we store about you**")
+        st.caption(
+            "Your profile (username, email, role), every dataset you upload and its AI "
+            "detection results, your URL scan history, the compliance/alert records your "
+            "activity generates, and an audit log of actions you take - nothing beyond "
+            "that, and nothing shared with other users."
+        )
+
+        export = _build_user_data_export(user)
+        st.download_button(
+            "Download my data (JSON)",
+            data=json.dumps(export, indent=2, default=str).encode("utf-8"),
+            file_name="ai_cyberguard_my_data.json",
+            mime="application/json",
+            icon=":material/download:",
+        )
 
 
 def _render_placeholder_section(title: str, desc: str, icon: str):
