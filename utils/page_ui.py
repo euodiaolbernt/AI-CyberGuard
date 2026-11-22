@@ -236,7 +236,10 @@ def render_top_bar(page_name: str, all_pages: list, on_jump):
       in status NEW (database.models.get_new_alert_count), with the
       popover listing the real most-recent ones
       (database.models.get_alerts(..., status="NEW")) - never a
-      fabricated number or example alert.
+      fabricated number or example alert. Settings > Notifications'
+      toggle (st.session_state["notifications_enabled"]) can turn this
+      badge/popover off for just this user - it never affects whether
+      alerts are created, only whether they're surfaced here.
     - Account: the authenticated session's own full_name/role - never
       hardcoded.
     """
@@ -319,11 +322,24 @@ def render_top_bar(page_name: str, all_pages: list, on_jump):
             # narrow column is what squeezed/clipped the bell icon
             # before; sized to its own (tiny) content, it stays a
             # clean square regardless of how the columns divide up.
-            new_count = get_new_alert_count(user_id) if user_id else 0
+            #
+            # Settings -> Notifications' toggle (session_state,
+            # refreshed from users.notifications_enabled on every page
+            # load - see auth/authentication.py's is_authenticated())
+            # only ever hides this user's OWN badge/popover - it never
+            # changes whether alerts are created or visible on the
+            # Alerts & Incidents page itself.
+            notifications_on = st.session_state.get("notifications_enabled", True)
+            new_count = get_new_alert_count(user_id) if (user_id and notifications_on) else 0
             bell_label = f":material/notifications: {new_count}" if new_count else ":material/notifications:"
             with st.popover(bell_label):
                 st.markdown("**New alerts**")
-                if new_count == 0:
+                if not notifications_on:
+                    st.caption(
+                        "Notifications are turned off - enable them in "
+                        "Settings > Notifications to see new alerts here."
+                    )
+                elif new_count == 0:
                     st.caption("No new alerts.")
                 else:
                     for a in get_alerts(user_id, status="NEW", limit=5):

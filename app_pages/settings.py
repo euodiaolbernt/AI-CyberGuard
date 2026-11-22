@@ -25,8 +25,10 @@ from database.models import (
     get_user_by_id,
     list_users,
     set_user_active,
+    update_font_size_preference,
+    update_notifications_enabled,
+    update_theme_preference,
     update_user_full_name,
-    update_user_preferences,
     username_exists,
 )
 from utils.audit_logger import log_action
@@ -40,12 +42,10 @@ from utils.illustrations import (
 )
 from utils.page_ui import render_empty_state
 
-# The left-column "account navigation" list. "account_details",
-# "security", "preferences", "connected", and "privacy" each open a
-# real section built from this app's actual data. "notifications" is
-# the one remaining not-yet-built feature (no backend for it exists
-# anywhere in this project), so it alone still shows an honest "not
-# available" notice instead of a fake working panel. (slug, title, description, icon)
+# The left-column "account navigation" list - every section here now
+# opens a real panel built from this app's actual data; none fall
+# through to the generic "not available yet" placeholder any more.
+# (slug, title, description, icon)
 _ACCOUNT_SECTIONS = [
     ("account_details", "Account Details", "View and update your personal information.", ":material/badge:"),
     ("security", "Security", "Manage your password and security settings.", ":material/lock:"),
@@ -202,6 +202,8 @@ def _render_my_account():
             _render_edit_profile_card(user)
         elif section == "security":
             _render_security_section(user)
+        elif section == "notifications":
+            _render_notifications_section(user)
         elif section == "preferences":
             _render_preferences_section(user)
         elif section == "connected":
@@ -353,40 +355,93 @@ def _render_security_section(user: dict):
             st.info("In-app password changes are not available yet.")
 
 
+def _apply_notifications_toggle(user_id: int):
+    enabled = st.session_state["settings_notifications_toggle"]
+    update_notifications_enabled(user_id, enabled)
+    st.session_state["notifications_enabled"] = enabled
+    log_action(
+        st.session_state.get("username", "?"), "PREFERENCES_UPDATED", "SETTINGS",
+        f"{'Enabled' if enabled else 'Disabled'} alert notifications.",
+    )
+
+
+def _render_notifications_section(user: dict):
+    """Deliberately simple: this app's only real notification surface
+    is the top bar's bell (utils/page_ui.py's render_top_bar(), backed
+    by the real count of this user's own NEW-status alerts) - so the
+    one real preference to offer here is whether that bell is shown
+    for this account, not a fake list of unrelated notification
+    channels (email/SMS/push) this app doesn't send."""
+    with st.container(key="settings_edit_profile_card", border=True):
+        st.markdown("##### :material/notifications: Notifications")
+        st.caption(
+            "Controls the alert bell in the top bar, which shows your own new, "
+            "not-yet-investigated alerts."
+        )
+        st.toggle(
+            "Show alert notifications",
+            value=bool(user.get("notifications_enabled", True)),
+            key="settings_notifications_toggle",
+            on_change=_apply_notifications_toggle, args=(user["id"],),
+            help="Turns the top bar's notification bell badge and popover on or off "
+                 "for your account. This never changes whether alerts are created - "
+                 "only whether you're shown them there.",
+        )
+
+
 _THEME_OPTIONS = ["Light", "Dark"]
 _FONT_SIZE_OPTIONS = ["Small", "Medium", "Large"]
+
+
+def _apply_theme_change(user_id: int):
+    """on_change callback - Streamlit runs this BEFORE the script
+    reruns, with the segmented_control's NEW value already in
+    st.session_state["settings_pref_theme"] - so by the time the
+    rerun reaches app.py's inject_global_theme() (which reads
+    st.session_state["theme_preference"]) at the top of the page, the
+    new theme is already in effect. No separate Save button/click
+    needed; this is what makes clicking Dark actually turn the app
+    dark immediately instead of only after a second action."""
+    new_theme = st.session_state["settings_pref_theme"].lower()
+    update_theme_preference(user_id, new_theme)
+    st.session_state["theme_preference"] = new_theme
+    log_action(
+        st.session_state.get("username", "?"), "PREFERENCES_UPDATED", "SETTINGS",
+        f"Set theme={new_theme}.",
+    )
+
+
+def _apply_font_size_change(user_id: int):
+    """Sibling of _apply_theme_change() for the font-size control -
+    same immediate-effect mechanism via on_change."""
+    new_font = st.session_state["settings_pref_font_size"].lower()
+    update_font_size_preference(user_id, new_font)
+    st.session_state["font_size_preference"] = new_font
+    log_action(
+        st.session_state.get("username", "?"), "PREFERENCES_UPDATED", "SETTINGS",
+        f"Set font_size={new_font}.",
+    )
 
 
 def _render_preferences_section(user: dict):
     with st.container(key="settings_edit_profile_card", border=True):
         st.markdown("##### :material/tune: Preferences")
         st.caption(
-            "Customise how AI CyberGuard looks for you - applies only to your own "
-            "account, on any device you sign in from."
+            "Customise how AI CyberGuard looks for you - changes apply immediately "
+            "and are saved to your own account."
         )
 
         current_theme = "Dark" if (user.get("theme_preference") or "light") == "dark" else "Light"
-        chosen_theme = st.segmented_control(
+        st.segmented_control(
             "Theme", _THEME_OPTIONS, default=current_theme, key="settings_pref_theme",
+            required=True, on_change=_apply_theme_change, args=(user["id"],),
         )
 
         current_font = (user.get("font_size_preference") or "medium").capitalize()
-        chosen_font = st.segmented_control(
+        st.segmented_control(
             "Font size", _FONT_SIZE_OPTIONS, default=current_font, key="settings_pref_font_size",
+            required=True, on_change=_apply_font_size_change, args=(user["id"],),
         )
-
-        if st.button("Save Preferences", icon=":material/save:", type="primary"):
-            new_theme = (chosen_theme or current_theme).lower()
-            new_font = (chosen_font or current_font).lower()
-            update_user_preferences(user["id"], new_theme, new_font)
-            st.session_state["theme_preference"] = new_theme
-            st.session_state["font_size_preference"] = new_font
-            log_action(
-                st.session_state.get("username", "?"), "PREFERENCES_UPDATED", "SETTINGS",
-                f"Set theme={new_theme}, font_size={new_font}.",
-            )
-            st.success("Preferences saved.")
-            st.rerun()
 
 
 def _render_connected_accounts_section(user: dict):

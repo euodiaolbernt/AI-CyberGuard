@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS users (
     last_login      DATETIME     NULL,
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     theme_preference      ENUM('light','dark') NOT NULL DEFAULT 'light',
-    font_size_preference  ENUM('small','medium','large') NOT NULL DEFAULT 'medium'
+    font_size_preference  ENUM('small','medium','large') NOT NULL DEFAULT 'medium',
+    notifications_enabled TINYINT(1) NOT NULL DEFAULT 1
 );
 
 -- ------------------------------------------------------------------

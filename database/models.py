@@ -114,8 +114,8 @@ def get_user_by_id(user_id: int):
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT id, username, email, role, auth_provider, full_name, is_active, "
-            "last_login, created_at, theme_preference, font_size_preference "
-            "FROM users WHERE id = %s",
+            "last_login, created_at, theme_preference, font_size_preference, "
+            "notifications_enabled FROM users WHERE id = %s",
             (user_id,),
         )
         return cursor.fetchone()
@@ -173,18 +173,51 @@ def update_user_full_name(user_id: int, full_name: str):
         conn.close()
 
 
-def update_user_preferences(user_id: int, theme_preference: str, font_size_preference: str):
-    """Persist the Settings -> Preferences choices (theme/font size) so
-    they survive logout/login, not just the current browser tab's
-    session_state - see utils/theme.py's inject_global_theme(), which
-    reads the session_state copy app.py's is_authenticated() refreshes
-    from this same column on every page load."""
+def update_theme_preference(user_id: int, theme_preference: str):
+    """Persist the Settings -> Preferences theme choice so it survives
+    logout/login, not just the current browser tab's session_state -
+    see utils/theme.py's inject_global_theme(), which reads the
+    session_state copy that app_pages/settings.py's on_change callback
+    updates immediately (and auth/authentication.py's
+    is_authenticated() refreshes from this same column on every page
+    load, e.g. after signing back in on a different device)."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET theme_preference = %s WHERE id = %s", (theme_preference, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_font_size_preference(user_id: int, font_size_preference: str):
+    """Sibling of update_theme_preference() for the font-size choice -
+    kept as a separate single-column UPDATE (rather than one combined
+    'preferences' setter) so each segmented_control's own on_change
+    callback can save and apply its own choice independently, without
+    needing to know the other control's current value."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE users SET theme_preference = %s, font_size_preference = %s WHERE id = %s",
-            (theme_preference, font_size_preference, user_id),
+            "UPDATE users SET font_size_preference = %s WHERE id = %s", (font_size_preference, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_notifications_enabled(user_id: int, enabled: bool):
+    """Toggles whether the top bar bell (utils/page_ui.py's
+    render_top_bar()) surfaces this user's real NEW-status alert count/
+    list - see that function's docstring. Never affects whether alerts
+    themselves are created (compliance/compliance_engine.py), only
+    whether this one user is shown them in the top bar."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET notifications_enabled = %s WHERE id = %s", (1 if enabled else 0, user_id),
         )
         conn.commit()
     finally:
