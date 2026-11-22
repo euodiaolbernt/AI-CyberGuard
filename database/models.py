@@ -453,10 +453,20 @@ def get_recent_threats(user_id: int, limit: int = 10, start_date=None, end_date=
 # server's max_allowed_packet (MySQL error 1153) and the whole insert
 # fails - which is exactly what left threat_detections empty for every
 # past attempt at the full dataset. Chunking keeps each statement small
-# regardless of how small a server's max_allowed_packet is configured:
-# ~2,000 rows is roughly 150KB of SQL text for this table's columns -
-# comfortably under even a conservative 1MB limit, with a wide margin.
-THREAT_DETECTION_INSERT_BATCH_SIZE = 2000
+# regardless of how small a server's max_allowed_packet is configured.
+#
+# 10,000 (was 2,000): this table's live TiDB Cloud connection measured
+# at ~84ms round-trip per query (a remote connection, not localhost) -
+# every chunk pays that latency regardless of its size, so fewer,
+# bigger chunks win. Benchmarked directly against this project's own
+# TiDB connection with a real 191,033-row insert (rolled back
+# afterwards, nothing persisted): 2,000/chunk took 19.2s (96 round
+# trips), 10,000/chunk took 12.6s (20 round trips) - a real ~35%
+# reduction, with 20,000/chunk only saving another ~0.7s past this
+# point (diminishing returns). The server's actual max_allowed_packet
+# is 64MB (confirmed via SHOW VARIABLES) - a 10,000-row chunk of this
+# table is well under 1MB, nowhere near that ceiling.
+THREAT_DETECTION_INSERT_BATCH_SIZE = 10000
 
 
 def insert_threat_detections_bulk(traffic_id: int, results_df, user_id: int) -> list[int]:
