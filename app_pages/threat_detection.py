@@ -300,7 +300,7 @@ def _set_active_dataset(df: pd.DataFrame, dataset_name: str):
     if dataset_name != st.session_state.get("td_dataset_name"):
         for key in ("td_validation", "td_bundle", "td_detection_results",
                     "td_detection_ground_truth_eval", "td_auto_attempted_for",
-                    "td_auto_train_error"):
+                    "td_auto_train_error", "td_dataset_info"):
             st.session_state.pop(key, None)
 
     df.columns = [str(c).strip() for c in df.columns]
@@ -541,6 +541,7 @@ def _render_active_dataset_bar():
                 for key in (
                     "td_df", "td_dataset_name", "td_validation", "td_bundle",
                     "td_detection_results", "td_detection_ground_truth_eval", "td_cicids_report",
+                    "td_dataset_info",
                 ):
                     st.session_state.pop(key, None)
                 st.rerun()
@@ -643,9 +644,33 @@ def _render_label_column_picker(df: pd.DataFrame):
     return auto_detected if chosen.startswith("Auto-detect") else chosen
 
 
+def _cached_dataset_info(df: pd.DataFrame, label_col):
+    """get_dataset_info() scans the WHOLE uploaded dataframe (isna(),
+    duplicated(), identifier-name detection) - for a large upload
+    (CICIDS2017-sized files run into the hundreds of thousands of rows)
+    that's real work, and both _render_dataset_info() and
+    _render_pipeline_controls() call it, unconditionally, on EVERY
+    single script rerun of this page - any button/widget interaction
+    anywhere on the page, not just right after upload, since Streamlit
+    reruns the whole page top to bottom on every interaction. Without
+    caching, that's this full-dataframe scan running TWICE per rerun,
+    on every single click, for as long as this dataset stays loaded -
+    exactly the "feels stuck loading" cost _load_models_for_slug()
+    above was already built to avoid for model loading, just never
+    applied here too. Cached by label_col alone: _set_active_dataset()
+    already clears this same slot whenever the dataset itself changes,
+    so a genuinely new upload never sees a stale cached value."""
+    cached = st.session_state.get("td_dataset_info")
+    if cached is not None and cached[0] == label_col:
+        return cached[1]
+    info = get_dataset_info(df, label_col)
+    st.session_state["td_dataset_info"] = (label_col, info)
+    return info
+
+
 def _render_dataset_info(df: pd.DataFrame, label_col):
     st.subheader("Dataset Information", icon=":material/table_chart:")
-    info = get_dataset_info(df, label_col)
+    info = _cached_dataset_info(df, label_col)
 
     # Blue/cyan/teal rotation only (per request) - colour is purely
     # decorative grouping, every value is still the exact real
@@ -706,7 +731,7 @@ def _render_dataset_info(df: pd.DataFrame, label_col):
 # ---------------------------------------------------------------
 
 def _render_pipeline_controls(df: pd.DataFrame, label_col):
-    info = get_dataset_info(df, label_col)
+    info = _cached_dataset_info(df, label_col)
     if info["identifier_like_columns"]:
         exclude_cols = st.multiselect(
             "Exclude identifier/non-predictive columns before preprocessing "
