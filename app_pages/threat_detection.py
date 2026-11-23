@@ -384,7 +384,28 @@ def _handle_csv_upload(uploaded_file):
     checked against a generous cap so a hostile/corrupt file can't
     exhaust memory. Nothing here executes the file's contents or
     trusts its name for anything beyond a display label - the
-    filename is never used as a filesystem path."""
+    filename is never used as a filesystem path.
+
+    st.file_uploader() keeps returning the SAME UploadedFile on every
+    rerun for as long as it stays attached to the widget - not just
+    once at upload time. Without this guard, this function (and its
+    full pd.read_csv() of a possibly hundreds-of-thousands-of-rows
+    file) ran again on every single click anywhere on the page, for as
+    long as the file stayed uploaded - the single biggest cost behind
+    "everything feels stuck loading", far bigger than any one page
+    computation. uploaded_file.file_id is a stable id Streamlit assigns
+    per upload (confirmed via UploadedFile's own __init__/__eq__/__hash__
+    in streamlit.runtime.uploaded_file_manager - it's what the class
+    itself uses for equality), unchanged across reruns of the same
+    attached file and different for a genuinely new upload - even one
+    with the same filename. Gated on td_df also still being populated
+    so "Clear dataset" (which pops td_df but can't reach into this
+    widget's own state) still reloads exactly as it did before this
+    guard existed, rather than silently refusing to."""
+    if (st.session_state.get("td_df") is not None
+            and st.session_state.get("td_csv_loaded_file_id") == uploaded_file.file_id):
+        return
+
     max_bytes = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if uploaded_file.size > max_bytes:
         st.error(
@@ -412,6 +433,7 @@ def _handle_csv_upload(uploaded_file):
         return
 
     _set_active_dataset(df, uploaded_file.name)
+    st.session_state["td_csv_loaded_file_id"] = uploaded_file.file_id
 
 
 # ---------------------------------------------------------------
@@ -475,7 +497,16 @@ def _handle_multiformat_upload(uploaded_file, trust_pickle: bool):
     parsing, row count after), plus format detection/parsing itself
     delegated to ml/file_loader.py. Every failure path shows a plain
     st.error() and returns without touching session state - a failed
-    upload never silently becomes an "empty" active dataset."""
+    upload never silently becomes an "empty" active dataset.
+
+    Same same-file-every-rerun guard as _handle_csv_upload() (see its
+    docstring) - a separate td_multiformat_loaded_file_id key since
+    this is a second, independent st.file_uploader widget that can
+    hold its own file regardless of what the CSV tab's uploader holds."""
+    if (st.session_state.get("td_df") is not None
+            and st.session_state.get("td_multiformat_loaded_file_id") == uploaded_file.file_id):
+        return
+
     max_bytes = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if uploaded_file.size > max_bytes:
         st.error(
@@ -504,6 +535,7 @@ def _handle_multiformat_upload(uploaded_file, trust_pickle: bool):
         return
 
     _set_active_dataset(df, uploaded_file.name)
+    st.session_state["td_multiformat_loaded_file_id"] = uploaded_file.file_id
     st.success(
         f":material/check_circle: Loaded **{meta['filename']}** as "
         f"{meta['format_label']} - {meta['size_bytes'] / 1024:.1f} KB, "

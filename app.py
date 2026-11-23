@@ -19,6 +19,63 @@ files directly, with no way for them to go through the login/role checks
 below. Renaming the folder avoids that collision, so this single router is
 the only way into any page.
 """
+import sys
+
+if sys.platform == "win32" and not getattr(sys, "_cyberguard_connreset_patched", False):
+    # Streamlit reruns this ENTIRE script top-to-bottom on every single
+    # widget interaction, for every connected session - without the
+    # sys._cyberguard_connreset_patched guard, this block would re-wrap
+    # whatever _call_connection_lost already was (its own wrapper from
+    # the previous rerun, by the second rerun onward) EVERY time,
+    # nesting one more try/except layer deeper on every single click,
+    # forever, for the life of the process.
+    #
+    # Windows-only: asyncio's default ProactorEventLoop logs a spurious
+    # "Exception in callback _ProactorBasePipeTransport._call_connection_
+    # lost()" + "ConnectionResetError: [WinError 10054]" whenever a
+    # browser tab's websocket gets reset out from under the server - a
+    # refresh, a closed tab, a network blip, or the browser's connection
+    # dropping while this app is mid-way through a long synchronous run
+    # (e.g. training on a large upload). This is a long-standing CPython
+    # bug on Windows (_call_connection_lost's own self._sock.shutdown()
+    # fails because the socket is already gone) - cosmetic console noise
+    # only; the server and every OTHER session keep running regardless,
+    # and this was never actually crashing anything.
+    #
+    # Patching the shared CLASS method (not any one instance) still
+    # takes effect even though Streamlit's own server/event loop is
+    # already running by the time this executes - Python looks up the
+    # method fresh on the class every call, so every future connection-
+    # reset cleanup goes through this patched version too, not just ones
+    # created after this line runs.
+    import asyncio.proactor_events as _ap
+
+    _orig_call_connection_lost = _ap._ProactorBasePipeTransport._call_connection_lost
+
+    def _call_connection_lost_quiet(self, exc):
+        try:
+            _orig_call_connection_lost(self, exc)
+        except (ConnectionResetError, ConnectionAbortedError, OSError):
+            # The original method's own cleanup (closing the socket,
+            # detaching from its server, marking itself as done) is
+            # INSIDE the same try/finally that just failed - finish it
+            # here instead of just swallowing the exception, so this
+            # transport isn't left half-closed.
+            try:
+                if self._sock is not None:
+                    self._sock.close()
+            except OSError:
+                pass
+            self._sock = None
+            server = getattr(self, "_server", None)
+            if server is not None:
+                server._detach(self)
+                self._server = None
+            self._called_connection_lost = True
+
+    _ap._ProactorBasePipeTransport._call_connection_lost = _call_connection_lost_quiet
+    sys._cyberguard_connreset_patched = True
+
 import html
 
 import streamlit as st

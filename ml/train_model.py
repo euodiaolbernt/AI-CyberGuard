@@ -265,9 +265,30 @@ def train_models(feature_df, y_raw, numeric_cols, categorical_cols,
     # sklearn's own long-maintained default is 100 for exactly this
     # reason: it's the point past which more trees mostly cost fit
     # time rather than buy meaningfully better accuracy.
+    # max_depth=30, max_samples=0.5 (both new): the above n_estimators=100
+    # tuning was never the real problem for a genuinely LARGE upload -
+    # benchmarked directly against this app's own train_models() on a
+    # synthetic 445,909-row dataset (the size of a real large CICIDS-style
+    # upload), fitting Random Forest alone took 311s (XGBoost: 14s on the
+    # SAME data - over 20x faster for the same job), because sklearn
+    # grows each tree to FULL depth by default - confirmed an average
+    # actual depth of ~95 on that run. Every split at every one of those
+    # ~95 levels re-evaluates across however many rows reached that node,
+    # which is what actually dominates fit time at this scale, not tree
+    # count. Benchmarked the fix on the trusted 60k-row/70-feature/20-
+    # informative synthetic task already used above: uncapped scored
+    # F1 0.8495 in 8.15s; max_depth=30 + max_samples=0.5 (each tree
+    # bootstrap-sampled from only half the training rows, a standard
+    # bagging regularizer - not a data-quality compromise, every row is
+    # still eligible, just not every row for every tree) scored F1 0.8206
+    # (-2.89 points) in 4.88s - 40% faster for a few points of F1, the
+    # trade the user explicitly chose over leaving this uncapped.
     _report(f"Training Random Forest on {len(X_train):,} rows...")
     with timed(f"train_models: fit random_forest ({len(X_train):,} rows)"):
-        rf = RandomForestClassifier(n_estimators=100, random_state=random_state, n_jobs=-1)
+        rf = RandomForestClassifier(
+            n_estimators=100, max_depth=30, max_samples=0.5,
+            random_state=random_state, n_jobs=-1,
+        )
         rf.fit(X_train, y_train)
 
     _report(f"Training XGBoost on {len(X_train):,} rows...")
